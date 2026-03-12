@@ -96,7 +96,10 @@ fn resolve_compare_args(
             let app_path_options: Vec<String> = artifacts
                 .apps
                 .iter()
-                .map(|(app_path, tags)| format!("{}  (Tags: {})", app_path, tags.join(", ")))
+                .map(|(app_path, entries)| {
+                    let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
+                    format!("{}  (Tags: {})", app_path, tag_names.join(", "))
+                })
                 .collect();
 
             let default_app_display = get_default_app_display(defaults, &artifacts);
@@ -114,18 +117,22 @@ fn resolve_compare_args(
                 .unwrap()
                 .to_string();
 
-            let tags = artifacts
-                .get_tags_for_app(&selected_app_path)
+            let tag_display_items = artifacts
+                .get_tag_display_items_for_app(&selected_app_path)
                 .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app_path))?;
-            let default_tag = defaults.from_file.as_deref().and_then(|d| {
+            let default_display = defaults.from_file.as_deref().and_then(|d| {
                 if d.contains(&selected_app_path) {
-                    parse_artifact_path(d).map(|(tag, _)| tag)
+                    parse_artifact_path(d).and_then(|(tag, _)| {
+                        artifacts.tag_to_display_item(&selected_app_path, &tag)
+                    })
                 } else {
                     None
                 }
             });
-            let selected_tag = selector::select_tag("Select BASELINE tag", tags, default_tag)
-                .wrap_err("Failed to select baseline tag")?;
+            let selected_display =
+                selector::select_tag("Select BASELINE tag", tag_display_items, default_display)
+                    .wrap_err("Failed to select baseline tag")?;
+            let selected_tag = selector::parse_tag_from_display(&selected_display);
             selector::build_path(&selected_tag, &selected_app_path)
         }
     };
@@ -136,27 +143,32 @@ fn resolve_compare_args(
     let to_file_str = match &args.to_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
-            let tags = artifacts
-                .get_tags_for_app(&from_app_path)
+            let tag_display_items = artifacts
+                .get_tag_display_items_for_app(&from_app_path)
                 .ok_or_else(|| eyre!("Failed to get tags for app: {}", from_app_path))?;
-            let other_tags: Vec<&String> = tags.iter().filter(|t| t != &&from_tag).collect();
-            if other_tags.is_empty() {
+            let other_displays: Vec<String> = tag_display_items
+                .into_iter()
+                .filter(|d| selector::parse_tag_from_display(d) != from_tag)
+                .collect();
+            if other_displays.is_empty() {
                 return Err(eyre!(
                     "No other tags found for application: {}",
                     from_app_path
                 ));
             }
 
-            let default_tag = defaults.to_file.as_deref().and_then(|d| {
+            let default_display = defaults.to_file.as_deref().and_then(|d| {
                 if d.contains(&from_app_path) {
-                    parse_artifact_path(d).map(|(tag, _)| tag)
+                    parse_artifact_path(d)
+                        .and_then(|(tag, _)| artifacts.tag_to_display_item(&from_app_path, &tag))
                 } else {
                     None
                 }
             });
-            let selected_tag =
-                selector::select_string("Select COMPARISON tag", &other_tags, default_tag)
+            let selected_display =
+                selector::select_tag("Select COMPARISON tag", other_displays, default_display)
                     .wrap_err("Failed to select comparison tag")?;
+            let selected_tag = selector::parse_tag_from_display(&selected_display);
             selector::build_path(&selected_tag, &from_app_path)
         }
     };

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use eyre::{Result, WrapErr, eyre};
 use goblin::elf::Elf;
 use log::debug;
@@ -6,23 +7,24 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use walkdir::WalkDir;
 
 /// Represents the collection of build artifacts found in the working directory.
 pub struct BuildArtifacts {
     /// A map where keys are application paths (relative to the tag directory)
-    /// and values are sorted lists of tags under which this application artifact exists.
-    pub apps: BTreeMap<String, Vec<String>>,
+    /// and values are `(tag, modified_time)` pairs sorted newest-first.
+    pub apps: BTreeMap<String, Vec<(String, SystemTime)>>,
 }
 
 impl BuildArtifacts {
     /// Finds and catalogs all build artifacts within the workdir's "out/branch-builds" directory.
     ///
-    /// It scans for files and verifies if they are ELF binaries by parsing their headers.
-    /// Files are expected to be within subdirectories structured as `<tag>/<app_path>`.
+    /// Scans for ELF binaries, records their modification time, and sorts each app's tags
+    /// by modification time descending (newest first).
     pub fn find(workdir: &Path) -> Result<Self> {
         let builds_dir = workdir.join("out/branch-builds");
-        let mut apps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut apps: BTreeMap<String, Vec<(String, SystemTime)>> = BTreeMap::new();
 
         if !builds_dir.exists() {
             return Ok(BuildArtifacts { apps });
@@ -47,7 +49,20 @@ impl BuildArtifacts {
                                 let app_path = PathBuf::from_iter(&components[1..])
                                     .to_string_lossy()
                                     .to_string();
-                                apps.entry(app_path).or_default().push(tag);
+                                let mtime = fs::metadata(path)
+                                    .and_then(|m| m.modified())
+                                    .unwrap_or(SystemTime::UNIX_EPOCH);
+                                let entries = apps.entry(app_path).or_default();
+                                // Replace existing entry for this tag or push new one
+                                if let Some(existing) = entries.iter_mut().find(|(t, _)| t == &tag)
+                                {
+                                    // Keep the newest mtime for this tag
+                                    if mtime > existing.1 {
+                                        existing.1 = mtime;
+                                    }
+                                } else {
+                                    entries.push((tag, mtime));
+                                }
                                 debug!("Found ELF artifact: {}", path.display());
                             } else {
                                 debug!(
@@ -66,10 +81,9 @@ impl BuildArtifacts {
             }
         }
 
-        // Sort and unique tags for each app
-        for tags in apps.values_mut() {
-            tags.sort();
-            tags.dedup();
+        // Sort each app's tags newest-first
+        for entries in apps.values_mut() {
+            entries.sort_by(|a, b| b.1.cmp(&a.1));
         }
 
         Ok(BuildArtifacts { apps })
@@ -80,10 +94,44 @@ impl BuildArtifacts {
         self.apps.keys().collect()
     }
 
-    /// Returns the list of tags available for a given application path.
-    pub fn get_tags_for_app(&self, app_path: &str) -> Option<&Vec<String>> {
-        self.apps.get(app_path)
+    /// Returns the list of tag names for the given app, sorted newest-first.
+    pub fn get_tags_for_app(&self, app_path: &str) -> Option<Vec<String>> {
+        self.apps
+            .get(app_path)
+            .map(|entries| entries.iter().map(|(tag, _)| tag.clone()).collect())
     }
+
+    /// Returns display strings (`"tag  (YYYY-MM-DD HH:MM)"`) for the given app, sorted newest-first.
+    pub fn get_tag_display_items_for_app(&self, app_path: &str) -> Option<Vec<String>> {
+        self.apps.get(app_path).map(|entries| {
+            entries
+                .iter()
+                .map(|(tag, mtime)| format_tag_display(tag, *mtime))
+                .collect()
+        })
+    }
+
+    /// Returns the display string for a specific `(app_path, tag)` pair, used to set skim defaults.
+    pub fn tag_to_display_item(&self, app_path: &str, tag: &str) -> Option<String> {
+        self.apps
+            .get(app_path)?
+            .iter()
+            .find(|(t, _)| t == tag)
+            .map(|(t, mtime)| format_tag_display(t, *mtime))
+    }
+}
+
+/// Formats a tag name and its ELF modification time into a display string for skim.
+pub fn format_tag_display(tag: &str, mtime: SystemTime) -> String {
+    let dt: DateTime<Local> = mtime.into();
+    format!("{}  ({})", tag, dt.format("%Y-%m-%d %H:%M"))
+}
+
+/// Strips the date suffix from a skim display string to recover the raw tag name.
+///
+/// Expects the format produced by `format_tag_display`: `"tag  (YYYY-MM-DD HH:MM)"`.
+pub fn parse_tag_from_display(display: &str) -> String {
+    display.split("  (").next().unwrap_or(display).to_string()
 }
 
 /// Presents an interactive fuzzy finder to the user to choose from a list of strings.
@@ -108,10 +156,7 @@ fn fuzzy_select(
         .build()
         .wrap_err("Failed to build Skim options")?;
 
-    let item_string = items.join(
-        "
-",
-    );
+    let item_string = items.join("\n");
     let item_reader = SkimItemReader::default();
     let skim_items = item_reader.of_bufread(Cursor::new(item_string));
 
@@ -138,20 +183,16 @@ fn fuzzy_select(
     }
 }
 
-/// Presents an interactive fuzzy finder for choosing from a list of string slices.
-pub fn select_string(
+/// Presents an interactive fuzzy finder for choosing a tag from display items.
+///
+/// Items should be formatted display strings (e.g. from `get_tag_display_items_for_app`).
+/// Use `parse_tag_from_display` on the result to recover the raw tag name.
+pub fn select_tag(
     prompt: &str,
-    items: &[&String],
+    items: Vec<String>,
     default_item: Option<String>,
 ) -> Result<String> {
-    let owned_items: Vec<String> = items.iter().map(|s| (*s).clone()).collect();
-    fuzzy_select(prompt, owned_items, default_item)
-}
-
-/// Presents an interactive fuzzy finder for choosing a tag from a list.
-pub fn select_tag(prompt: &str, tags: &[String], default_item: Option<String>) -> Result<String> {
-    let owned_tags: Vec<String> = tags.to_vec();
-    fuzzy_select(prompt, owned_tags, default_item)
+    fuzzy_select(prompt, items, default_item)
 }
 
 /// Presents an interactive fuzzy finder for choosing an application path.
@@ -184,5 +225,14 @@ mod tests {
             build_path("my-tag", "other_app"),
             "out/branch-builds/my-tag/other_app"
         );
+    }
+
+    #[test]
+    fn test_parse_tag_from_display() {
+        assert_eq!(
+            parse_tag_from_display("my-branch  (2024-01-15 14:23)"),
+            "my-branch"
+        );
+        assert_eq!(parse_tag_from_display("plain-tag"), "plain-tag");
     }
 }
