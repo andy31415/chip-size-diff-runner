@@ -81,7 +81,10 @@ pub fn generate_tag(
     }
 
     let prompt = "Select tag for build output";
-    let selection = selector::select_app_path(prompt, options, None)?;
+    let selection_result = selector::select_app_path(prompt, options, None);
+    debug!("tag_generator selection_result: {:?}", selection_result);
+
+    let selection = selection_result?;
 
     if selection.starts_with("Use current commit ID: ") {
         Ok(format!("jj-{}", current_commit_id))

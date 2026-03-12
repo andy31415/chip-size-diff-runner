@@ -111,14 +111,26 @@ fn fuzzy_select(
     let item_reader = SkimItemReader::default();
     let skim_items = item_reader.of_bufread(Cursor::new(item_string));
 
-    let selected_items = Skim::run_with(options, Some(skim_items))
-        .map(|out| out.selected_items)
-        .unwrap_or_else(|_| Vec::new());
-
-    if selected_items.is_empty() {
-        Err("No selection made.".into())
-    } else {
-        Ok(selected_items[0].output().to_string())
+    match Skim::run_with(options, Some(skim_items)) {
+        Ok(out) => {
+            debug!("Skim output: {:?}", out);
+            if out.is_abort {
+                debug!("Skim selection aborted by user (e.g., ESC)");
+                Err("Selection cancelled by user.".into())
+            } else {
+                let selected_items = out.selected_items;
+                if selected_items.is_empty() {
+                    debug!("Skim selection empty, but not an abort");
+                    Err("No selection made.".into())
+                } else {
+                    Ok(selected_items[0].output().to_string())
+                }
+            }
+        }
+        Err(e) => {
+            debug!("Skim returned error: {} - treated as cancellation", e);
+            Err("Selection process failed or was cancelled.".into())
+        }
     }
 }
 

@@ -24,7 +24,10 @@ pub struct BuildArgs {
 ///
 /// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let tag = tag_generator::generate_tag(workdir, args.tag.clone())?;
+    let tag_result = tag_generator::generate_tag(workdir, args.tag.clone());
+    debug!("handle_build tag_result: {:?}", tag_result);
+
+    let tag = tag_result?;
 
     info!("Building application: {}", args.application);
     info!("Using tag: {}", tag);
