@@ -2,40 +2,62 @@
 
 This document outlines the requirements for a Rust application designed to automate the building and comparison of application binaries, primarily for size difference analysis. This tool aims to replace and enhance existing Nushell scripts.
 
-## Core Functionality
+## Implemented Features
 
-1.  **Building Applications (`build`)**
-    *   The tool will support a `build` subcommand.
-    *   **Required Argument:** `application` - Specifies the application/target to build (e.g., `linux-x64-all-clusters-clang`).
-    *   **Optional Argument:** `--tag <TAG>` - Specifies a tag to use for the output directory.
-    *   **Tag Logic:**
-        *   If a `--tag` is provided, it will be used directly.
-        *   If no `--tag` is provided, the tool will attempt to get the current `jj` tag from `@-`.
-        *   If no `jj` tag is found at `@-`, the tool should exit with an error message.
-    *   **Output Directory:** Builds will be stored in `out/branch-builds/<TAG>/`.
-    *   The tool will execute the appropriate build command (e.g., `./scripts/build/build_examples.py ...`).
+1.  **Global Options:**
+    *   `--workdir <PATH>`: Specifies the working directory for all operations (defaults to `~/devel/connectedhomeip`). Validated to ensure `scripts/activate.sh` exists.
 
-2.  **Comparing Builds (`compare`)**
-    *   The tool will support a `compare` subcommand.
-    *   **Optional Arguments:**
-        *   `--from <PATH>`: Specifies the baseline binary file path.
-        *   `--to <PATH>`: Specifies the comparison binary file path.
+2.  **Building Applications (`build`)**
+    *   **Usage:** `branch_diff build [OPTIONS] <APPLICATION>`
+    *   **Arguments:**
+        *   `APPLICATION`: Specifies the target to build (e.g., `linux-x64-all-clusters-clang`).
+        *   `--tag <TAG>`: Optional tag for the output directory.
+    *   **Tag Logic:** Uses `--tag` if provided, otherwise fetches the current `jj` tag from `@-` in the `workdir`.
+    *   **Output Directory:** `out/branch-builds/<TAG>/` relative to `workdir`.
+    *   **Execution:** Builds on host for `linux-x64-*` targets, otherwise uses a default podman container (`bld_vscode`).
+
+3.  **Comparing Builds (`compare`)**
+    *   **Usage:** `branch_diff compare [FROM_FILE] [TO_FILE] -- [EXTRA_DIFF_ARGS...]`
+    *   **Arguments:**
+        *   `FROM_FILE`: Optional baseline build path (e.g., `out/branch-builds/tag1/app`).
+        *   `TO_FILE`: Optional comparison build path (e.g., `out/branch-builds/tag2/app`).
+        *   `EXTRA_DIFF_ARGS`: Additional arguments passed to the diff script.
     *   **Interactive Mode:**
-        *   If `--from` and `--to` are NOT provided, the tool should list all files within `out/branch-builds/` in a user-friendly way, allowing the user to select the two files to compare. The listing should clearly separate the tag and the application name.
-    *   **Comparison Logic:** The tool will invoke a binary size comparison script (e.g., `~/devel/connectedhomeip/scripts/tools/binary_elf_size_diff.py`) on the two selected files.
+        *   Triggered if `FROM_FILE` or `TO_FILE` are omitted.
+        *   Scans `out/branch-builds` for ELF files.
+        *   Prompts user to select: 1. Application/File path. 2. Baseline TAG. 3. Comparison TAG (for the same application).
+    *   **Comparison Logic:** Executes the diff script `scripts/tools/binary_elf_size_diff.py` using `uv run <script>`. Defaults to `--output table` if no `EXTRA_DIFF_ARGS` are provided.
 
-## Future TODOS
+## Future TODOs
 
+### High Priority
+
+*   **Enhanced Build Execution Control:**
+    *   Add arguments to `build` to explicitly choose execution method: `--local`, `--podman`.
+    *   Allow specifying podman instance name (e.g., `--podman-instance <NAME>`).
+    *   Maintain current defaults if new flags are not used.
+*   **Remember Last Comparison:**
+    *   Store the last used `FROM_FILE` and `TO_FILE` paths (e.g., in a local config file).
+    *   Add an option to `compare` (e.g., `--rerun`) to quickly re-execute the last comparison.
+    *   Potentially pre-fill interactive mode defaults with last used values.
+*   **Refine Interactive Application Selection:**
+    *   When selecting the application in `compare` interactive mode, display the list of available tags for each application path to provide more context.
+
+### Medium Priority
+
+*   **Enhanced Interactive Comparison UI:**
+    *   Use a TUI library (e.g., `ratatui`, `crossterm`) for a more robust interactive selection experience.
+    *   Implement fuzzy searching/filtering of applications and tags.
 *   **More Robust Tag Inference:**
-    *   Support for git branches if a `.jj` directory is not present.
+    *   Support for git branches if a `.jj` directory is not present in `workdir` for the `build` subcommand.
     *   Allow building at the current commit hash if no tag/branch is found.
-*   **Enhanced Interactive Comparison:**
-    *   Use a TUI library (e.g., `ratatui`, `crossterm`) for a better interactive selection experience when `--from` and `--to` are not provided.
-    *   Implement fuzzy searching/filtering of available builds.
-*   **Configuration:**
-    *   Allow configuration of the build command and comparison script paths.
-*   **Autocomplete:**
-    *   Generate shell completion scripts (Bash, Zsh, Fish, Nushell) for subcommands and options.
-    *   Provide dynamic completions for available build tags and application names in `compare` mode.
+
+### Low Priority
+
+*   **Configuration File:**
+    *   Allow configuration of default `workdir`, podman instance, diff script path, etc., via a config file (e.g., TOML).
+*   **Shell Autocomplete:**
+    *   Generate shell completion scripts (Bash, Zsh, Fish, Nushell).
+    *   Provide dynamic completions for tags and application names in `compare` mode.
 *   **Web UI:** Eventually, a simple web interface to trigger builds and view comparison results.
-*   **Database:** Store build metadata and comparison results in a simple database (e.g., SQLite).
+*   **Database:** Store build metadata and comparison results in a simple database (e.g., SQLite) for history and analysis.
