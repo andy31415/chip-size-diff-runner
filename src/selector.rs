@@ -84,9 +84,20 @@ impl BuildArtifacts {
 }
 
 /// Presents an interactive fuzzy finder to the user to choose from a list of strings.
-fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
+fn fuzzy_select(
+    prompt: &str,
+    mut items: Vec<String>,
+    default_item: Option<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
     if items.is_empty() {
         return Err("No items to select from.".into());
+    }
+
+    if let Some(def_item) = default_item
+        && let Some(index) = items.iter().position(|item| item == &def_item)
+    {
+        let item = items.remove(index);
+        items.insert(0, item);
     }
 
     let options = SkimOptionsBuilder::default()
@@ -115,23 +126,29 @@ fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String, Box<dyn std:
 pub fn select_string(
     prompt: &str,
     items: &[&String],
+    default_item: Option<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let owned_items: Vec<String> = items.iter().map(|s| (*s).clone()).collect();
-    fuzzy_select(prompt, owned_items)
+    fuzzy_select(prompt, owned_items, default_item)
 }
 
 /// Presents an interactive fuzzy finder for choosing a tag from a list.
-pub fn select_tag(prompt: &str, tags: &[String]) -> Result<String, Box<dyn std::error::Error>> {
+pub fn select_tag(
+    prompt: &str,
+    tags: &[String],
+    default_item: Option<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
     let owned_tags: Vec<String> = tags.to_vec();
-    fuzzy_select(prompt, owned_tags)
+    fuzzy_select(prompt, owned_tags, default_item)
 }
 
 /// Presents an interactive fuzzy finder for choosing an application path.
 pub fn select_app_path(
     prompt: &str,
     app_paths: Vec<String>,
+    default_item: Option<String>,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    fuzzy_select(prompt, app_paths)
+    fuzzy_select(prompt, app_paths, default_item)
 }
 
 /// Constructs the relative path to an artifact given a tag and application path.

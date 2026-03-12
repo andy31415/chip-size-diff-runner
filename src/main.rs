@@ -4,6 +4,7 @@ use log::{error, info};
 use std::path::PathBuf;
 
 mod commands;
+mod defaults;
 mod selector;
 
 use commands::build::{self, BuildArgs};

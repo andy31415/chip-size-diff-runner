@@ -3,6 +3,7 @@ use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::defaults::{self, ComparisonDefaults};
 use crate::selector::{self, BuildArtifacts};
 
 /// Arguments for the `compare` subcommand.
@@ -60,6 +61,19 @@ fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
     }
 }
 
+fn get_default_app_display(
+    defaults: &ComparisonDefaults,
+    artifacts: &BuildArtifacts,
+) -> Option<String> {
+    defaults.from_file.as_ref().and_then(|d_from_file| {
+        parse_artifact_path(d_from_file).and_then(|(_tag, app_path)| {
+            artifacts
+                .get_tags_for_app(&app_path)
+                .map(|tags| format!("{}  (Tags: {})", app_path, tags.join(", ")))
+        })
+    })
+}
+
 /// Resolves the `from_file` and `to_file` arguments, prompting the user interactively if necessary.
 ///
 /// If file paths are not provided in `args`, this function discovers available build artifacts
@@ -67,6 +81,7 @@ fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
 fn resolve_compare_args(
     args: &CompareArgs,
     workdir: &Path,
+    defaults: &ComparisonDefaults,
 ) -> Result<ResolvedCompareArgs, Box<dyn std::error::Error>> {
     let artifacts = BuildArtifacts::find(workdir)?;
 
@@ -82,15 +97,30 @@ fn resolve_compare_args(
                 .iter()
                 .map(|(app_path, tags)| format!("{}  (Tags: {})", app_path, tags.join(", ")))
                 .collect();
-            let selected_app_path_str =
-                selector::select_app_path("Select application", app_path_options)?;
+
+            let default_app_display = get_default_app_display(defaults, &artifacts);
+
+            let selected_app_path_str = selector::select_app_path(
+                "Select application",
+                app_path_options,
+                default_app_display,
+            )?;
             // Extract the actual app path from the formatted string
-            let selected_app_path = selected_app_path_str.split("  (Tags:")
+            let selected_app_path = selected_app_path_str
+                .split("  (Tags:")
                 .next()
                 .unwrap()
                 .to_string();
+
             let tags = artifacts.get_tags_for_app(&selected_app_path).unwrap();
-            let selected_tag = selector::select_tag("Select BASELINE tag", tags)?;
+            let default_tag = defaults.from_file.as_deref().and_then(|d| {
+                if d.contains(&selected_app_path) {
+                    parse_artifact_path(d).map(|(tag, _)| tag)
+                } else {
+                    None
+                }
+            });
+            let selected_tag = selector::select_tag("Select BASELINE tag", tags, default_tag)?;
             selector::build_path(&selected_tag, &selected_app_path)
         }
     };
@@ -108,7 +138,16 @@ fn resolve_compare_args(
                     format!("No other tags found for application: {}", from_app_path).into(),
                 );
             }
-            let selected_tag = selector::select_string("Select COMPARISON tag", &other_tags)?;
+
+            let default_tag = defaults.to_file.as_deref().and_then(|d| {
+                if d.contains(&from_app_path) {
+                    parse_artifact_path(d).map(|(tag, _)| tag)
+                } else {
+                    None
+                }
+            });
+            let selected_tag =
+                selector::select_string("Select COMPARISON tag", &other_tags, default_tag)?;
             selector::build_path(&selected_tag, &from_app_path)
         }
     };
@@ -177,13 +216,30 @@ pub fn handle_compare(
     args: &CompareArgs,
     workdir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let resolved_args = resolve_compare_args(args, workdir)?;
+    let defaults = defaults::load_defaults()?;
+    let resolved_args = resolve_compare_args(args, workdir, &defaults)?;
+
     run_diff(
         &resolved_args.from_path,
         &resolved_args.to_path,
         workdir,
         &args.extra_diff_args,
-    )
+    )?;
+
+    // Save the successful comparison paths as new defaults
+    let new_defaults = ComparisonDefaults {
+        from_file: Some(normalize_path_str(
+            &resolved_args.from_path.to_string_lossy(),
+            workdir,
+        )),
+        to_file: Some(normalize_path_str(
+            &resolved_args.to_path.to_string_lossy(),
+            workdir,
+        )),
+    };
+    defaults::save_defaults(&new_defaults)?;
+
+    Ok(())
 }
 
 #[cfg(test)]
