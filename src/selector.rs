@@ -104,7 +104,7 @@ fn fuzzy_select(
     }
 
     let options = SkimOptionsBuilder::default()
-        .prompt(prompt.to_string())
+        .prompt(format!("{}: ", prompt))
         .build()
         .wrap_err("Failed to build Skim options")?;
 
