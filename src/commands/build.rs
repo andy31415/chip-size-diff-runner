@@ -4,6 +4,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str;
 
+use crate::tag_generator;
+
 /// Arguments for the `build` subcommand.
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
@@ -12,76 +14,20 @@ pub struct BuildArgs {
 
     /// Optional tag/bookmark name to associate with the build.
     ///
-    /// If not provided, the tool will attempt to infer the current `jj` bookmark at @-.
-    /// The build artifacts will be stored in a directory named after this bookmark.
+    /// If not provided, the tool will attempt to infer a suitable tag
+    /// based on the jj repository state or prompt the user.
     #[arg(short, long)]
     pub tag: Option<String>,
-}
-
-/// Retrieves the latest `jj` bookmark from the current repository checkout.
-///
-/// Executes `jj bookmark list -r @-` to find the bookmark associated with the parent commit.
-fn get_jj_bookmark(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    debug!(
-        "Attempting to get jj bookmark from workdir: {}",
-        workdir.display()
-    );
-    let command = Command::new("jj")
-        .arg("bookmark")
-        .arg("list")
-        .arg("-r")
-        .arg("@-")
-        .current_dir(workdir)
-        .output();
-
-    match command {
-        Ok(output) => {
-            let stdout = str::from_utf8(&output.stdout).unwrap_or("[non-utf8 stdout]");
-            let stderr = str::from_utf8(&output.stderr).unwrap_or("[non-utf8 stderr]");
-            debug!("`jj bookmark list -r @-` status: {}", output.status);
-            debug!(
-                "`jj bookmark list -r @-` stdout:
-{}",
-                stdout
-            );
-            debug!(
-                "`jj bookmark list -r @-` stderr:
-{}",
-                stderr
-            );
-
-            if output.status.success() {
-                let bookmark = stdout
-                    .lines()
-                    .next()
-                    .and_then(|line| line.split(':').next())
-                    .map(str::trim);
-                debug!("Parsed bookmark: {:?}", bookmark);
-                Ok(bookmark.map(String::from))
-            } else {
-                error!("jj bookmark command failed");
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            error!("Failed to execute jj command: {}", e);
-            Err(e.into())
-        }
-    }
 }
 
 /// Handles the logic for the `build` subcommand.
 ///
 /// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let tag = match &args.tag {
-        Some(t) => t.clone(),
-        None => get_jj_bookmark(workdir)?
-            .ok_or("Error: No --tag provided and no jj bookmark found at @- in this repository")?,
-    };
+    let tag = tag_generator::generate_tag(workdir, args.tag.clone())?;
 
     info!("Building application: {}", args.application);
-    info!("Using tag/bookmark: {}", tag);
+    info!("Using tag: {}", tag);
 
     let relative_output_dir = format!("out/branch-builds/{}", tag);
     let output_dir = workdir.join(&relative_output_dir);

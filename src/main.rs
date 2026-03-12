@@ -6,6 +6,7 @@ use std::path::PathBuf;
 mod commands;
 mod defaults;
 mod selector;
+mod tag_generator;
 
 use commands::build::{self, BuildArgs};
 use commands::compare::{self, CompareArgs};
