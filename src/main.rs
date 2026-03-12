@@ -232,7 +232,15 @@ fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std:
                 return Err("No build artifacts found.".into());
             }
             // TODO: Display available tags per app path
-            let selected_app_path = selector::select_string("Select application", &app_paths)?;
+                        let app_path_options: Vec<String> = artifacts.apps.iter().map(|(app_path, tags)| {
+                format!("{}  (Tags: {})", app_path, tags.join(", "))
+            }).collect();
+            let selection_index = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                .with_prompt("Select application")
+                .items(&app_path_options)
+                .default(0)
+                .interact()?;
+            let selected_app_path = artifacts.get_app_paths()[selection_index].clone();
             let tags = artifacts.get_tags_for_app(&selected_app_path).unwrap();
             let selected_tag = selector::select_tag("Select BASELINE tag", tags)?;
             selector::build_path(&selected_tag, &selected_app_path)
