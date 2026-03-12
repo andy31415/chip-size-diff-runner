@@ -228,6 +228,9 @@ mod tests {
             normalize_path_str("/other/path/out/branch-builds/tag/app", &workdir),
             "/other/path/out/branch-builds/tag/app"
         );
-        assert_eq!(normalize_path_str("relative/path", &workdir), "relative/path");
+        assert_eq!(
+            normalize_path_str("relative/path", &workdir),
+            "relative/path"
+        );
     }
 }
