@@ -22,24 +22,42 @@ pub struct BuildArgs {
 ///
 /// Executes `jj tag list -r @-` to find the tag associated with the parent commit.
 fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let output = Command::new("jj")
+    debug!("Attempting to get jj tag from workdir: {}", workdir.display());
+    let command = Command::new("jj")
         .arg("tag")
         .arg("list")
         .arg("-r")
         .arg("@-")
         .current_dir(workdir)
-        .output()?;
+        .output();
 
-    if output.status.success() {
-        let stdout = str::from_utf8(&output.stdout)?;
-        let tag = stdout
-            .lines()
-            .next()
-            .and_then(|line| line.split(':').next())
-            .map(str::trim);
-        Ok(tag.map(String::from))
-    } else {
-        Ok(None)
+    match command {
+        Ok(output) => {
+            let stdout = str::from_utf8(&output.stdout).unwrap_or("[non-utf8 stdout]");
+            let stderr = str::from_utf8(&output.stderr).unwrap_or("[non-utf8 stderr]");
+            debug!("`jj tag list -r @-` status: {}", output.status);
+            debug!("`jj tag list -r @-` stdout:
+{}", stdout);
+            debug!("`jj tag list -r @-` stderr:
+{}", stderr);
+
+            if output.status.success() {
+                let tag = stdout
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split(':').next())
+                    .map(str::trim);
+                debug!("Parsed tag: {:?}", tag);
+                Ok(tag.map(String::from))
+            } else {
+                error!("jj tag command failed");
+                Ok(None)
+            }
+        }
+        Err(e) => {
+            error!("Failed to execute jj command: {}", e);
+            Err(e.into())
+        }
     }
 }
 
