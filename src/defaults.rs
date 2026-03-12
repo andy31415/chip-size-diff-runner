@@ -5,11 +5,24 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+const MAX_RECENT_APPLICATIONS: usize = 10;
+
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ComparisonDefaults {
     pub workdir: Option<String>,
     pub from_file: Option<String>,
     pub to_file: Option<String>,
+    #[serde(default)]
+    pub recent_applications: Vec<String>,
+}
+
+impl ComparisonDefaults {
+    /// Prepends `app` to `recent_applications`, deduplicates, and trims to `MAX_RECENT_APPLICATIONS`.
+    pub fn add_recent_application(&mut self, app: &str) {
+        self.recent_applications.retain(|a| a != app);
+        self.recent_applications.insert(0, app.to_string());
+        self.recent_applications.truncate(MAX_RECENT_APPLICATIONS);
+    }
 }
 
 fn get_cache_file_path() -> Result<PathBuf> {
