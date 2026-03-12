@@ -8,6 +8,10 @@ use std::str;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Working directory for all operations
+    #[arg(short, long, global = true, default_value_t = default_workdir())]
+    workdir: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -32,18 +36,24 @@ struct BuildArgs {
     /// Optional tag for the build
     #[arg(short, long)]
     tag: Option<String>,
-
-    /// Working directory for the build
-    #[arg(short, long, default_value_t = default_workdir())]
-    workdir: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    let workdir = PathBuf::from(&cli.workdir);
+    if !workdir.join("scripts/activate.sh").exists() {
+        return Err(format!(
+            "Invalid workdir: {}. 'scripts/activate.sh' not found.",
+            cli.workdir
+        )
+        .into());
+    }
+    println!("Using working directory: {}", workdir.display());
+
     match &cli.command {
         Commands::Build(args) => {
-            handle_build(args)?;
+            handle_build(args, &workdir)?;
         }
     }
 
@@ -72,20 +82,10 @@ fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Erro
     }
 }
 
-fn handle_build(args: &BuildArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let workdir = PathBuf::from(&args.workdir);
-    if !workdir.join("scripts/activate.sh").exists() {
-        return Err(format!(
-            "Invalid workdir: {}. 'scripts/activate.sh' not found.",
-            args.workdir
-        )
-        .into());
-    }
-    println!("Using working directory: {}", workdir.display());
-
+fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let tag = match &args.tag {
         Some(t) => t.clone(),
-        None => get_jj_tag(&workdir)?.ok_or(
+        None => get_jj_tag(workdir)?.ok_or(
             "Error: No --tag provided and no jj tag found at @- in this repository",
         )?,
     };
@@ -98,7 +98,7 @@ fn handle_build(args: &BuildArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Output directory: {}", output_dir.display());
 
-    execute_build(&args.application, &output_dir, &workdir)?;
+    execute_build(&args.application, &output_dir, workdir)?;
 
     Ok(())
 }
