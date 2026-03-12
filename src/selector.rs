@@ -1,7 +1,10 @@
 use dialoguer::{Select, theme::ColorfulTheme};
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use goblin::elf::Elf;
+use log::debug;
 
 /// Represents the collection of build artifacts found in the working directory.
 pub struct BuildArtifacts {
@@ -13,8 +16,8 @@ pub struct BuildArtifacts {
 impl BuildArtifacts {
     /// Finds and catalogs all build artifacts within the workdir's "out/branch-builds" directory.
     ///
-    /// It scans for files ending in ".elf", ".bin", or files with no extension
-    /// within subdirectories structured as `<tag>/<app_path>`.
+    /// It scans for files and verifies if they are ELF binaries by parsing their headers.
+    /// Files are expected to be within subdirectories structured as `<tag>/<app_path>`.
     pub fn find(workdir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let builds_dir = workdir.join("out/branch-builds");
         let mut apps: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -24,24 +27,34 @@ impl BuildArtifacts {
         }
 
         for entry in WalkDir::new(&builds_dir).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file()
-                && let Some(filename) = entry.path().file_name().and_then(|n| n.to_str())
-                && (!filename.contains('.')
-                    || filename.ends_with(".elf")
-                    || filename.ends_with(".bin"))
-            {
-                let relative_path = entry.path().strip_prefix(&builds_dir)?;
-                let components: Vec<&str> = relative_path
-                    .iter()
-                    .map(|s| s.to_str().unwrap_or(""))
-                    .collect();
+            if entry.file_type().is_file() {
+                let path = entry.path();
+                match fs::read(path) {
+                    Ok(buffer) => {
+                        if Elf::parse(&buffer).is_ok() {
+                            let relative_path = path.strip_prefix(&builds_dir)?;
+                            let components: Vec<&str> = relative_path
+                                .iter()
+                                .map(|s| s.to_str().unwrap_or(""))
+                                .collect();
 
-                if components.len() > 1 {
-                    let tag = components[0].to_string();
-                    let app_path = PathBuf::from_iter(&components[1..])
-                        .to_string_lossy()
-                        .to_string();
-                    apps.entry(app_path).or_default().push(tag);
+                            if components.len() > 1 {
+                                let tag = components[0].to_string();
+                                let app_path = PathBuf::from_iter(&components[1..])
+                                    .to_string_lossy()
+                                    .to_string();
+                                apps.entry(app_path).or_default().push(tag);
+                                debug!("Found ELF artifact: {}", path.display());
+                            } else {
+                                debug!("Skipping file with unexpected path structure: {}", path.display());
+                            }
+                        } else {
+                            debug!("Skipping non-ELF file: {}", path.display());
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Error reading file {}: {}", path.display(), e);
+                    }
                 }
             }
         }
