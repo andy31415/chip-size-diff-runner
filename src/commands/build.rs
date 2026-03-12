@@ -1,3 +1,6 @@
+use crate::defaults;
+use crate::selector;
+use crate::tag_generator;
 use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
@@ -5,12 +8,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::str;
 
-use crate::defaults;
-use crate::selector;
-use crate::tag_generator;
-
+/// Starting set of known targets so a fresh install has a useful selection list
+/// before any builds have been run.
 const HARDCODED_TARGETS: &[&str] = &[
     "linux-x64-all-clusters-app",
     "linux-x64-chip-tool",
@@ -129,7 +129,7 @@ fn resolve_application(
 ///
 /// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
-    let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
+    let mut defaults = defaults::ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
 
     let application = resolve_application(args, workdir, &defaults)?;
 
@@ -156,7 +156,7 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
         .wrap_err("Failed to execute build")?;
 
     defaults.add_recent_application(&application);
-    defaults::save_defaults(&defaults).wrap_err("Failed to save defaults")?;
+    defaults.save().wrap_err("Failed to save defaults")?;
 
     Ok(())
 }
@@ -209,4 +209,42 @@ fn execute_build(
 
     info!("Artifacts in: {}", output_dir.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_candidate_list_ordering() {
+        // Recents come first (preserving their order), then discovered, then hardcoded.
+        let recent = vec!["recent-a".to_string(), "recent-b".to_string()];
+        let discovered = vec!["discovered-x".to_string()];
+        let result = build_candidate_list(&recent, discovered);
+        assert_eq!(result[0], "recent-a");
+        assert_eq!(result[1], "recent-b");
+        assert_eq!(result[2], "discovered-x");
+        assert!(result.contains(&"linux-x64-all-clusters-app".to_string()));
+    }
+
+    #[test]
+    fn test_candidate_list_deduplication() {
+        // A target that appears in recents, discovered, and hardcoded must appear exactly once.
+        let recent = vec!["linux-x64-all-clusters-app".to_string()];
+        let discovered = vec!["linux-x64-all-clusters-app".to_string()];
+        let result = build_candidate_list(&recent, discovered);
+        let count = result
+            .iter()
+            .filter(|s| s.as_str() == "linux-x64-all-clusters-app")
+            .count();
+        assert_eq!(count, 1);
+        assert_eq!(result[0], "linux-x64-all-clusters-app");
+    }
+
+    #[test]
+    fn test_candidate_list_empty_recents_falls_back_to_hardcoded() {
+        let result = build_candidate_list(&[], vec![]);
+        assert!(!result.is_empty());
+        assert_eq!(result[0], HARDCODED_TARGETS[0]);
+    }
 }

@@ -4,7 +4,7 @@ use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::defaults::{self, ComparisonDefaults};
+use crate::defaults::ComparisonDefaults;
 use crate::selector::{self, BuildArtifacts};
 
 /// Arguments for the `compare` subcommand.
@@ -209,7 +209,7 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[Stri
 
 /// Handles the logic for the `compare` subcommand.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
-    let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
+    let mut defaults = ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
     let resolved_args = resolve_compare_args(args, workdir, &defaults)
         .wrap_err("Failed to resolve compare arguments")?;
 
@@ -229,7 +229,7 @@ pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
         &resolved_args.to_path.to_string_lossy(),
         workdir,
     ));
-    defaults::save_defaults(&defaults).wrap_err("Failed to save defaults")?;
+    defaults.save().wrap_err("Failed to save defaults")?;
 
     Ok(())
 }

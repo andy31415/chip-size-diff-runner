@@ -294,4 +294,32 @@ mod tests {
     fn test_select_item_for_string() {
         assert_eq!("hello".to_string().display_text(), "hello");
     }
+
+    #[test]
+    fn test_create_tag_items_empty() {
+        let items = create_tag_items(&[]);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_app_items_alignment() {
+        use std::time::SystemTime;
+        let mut apps = BTreeMap::new();
+        apps.insert(
+            "short/path".to_string(),
+            vec![("tag1".to_string(), SystemTime::UNIX_EPOCH)],
+        );
+        apps.insert(
+            "a/much/longer/application/path".to_string(),
+            vec![("tag2".to_string(), SystemTime::UNIX_EPOCH)],
+        );
+        let artifacts = BuildArtifacts { apps };
+        let items = artifacts.app_items();
+        // All items should have the same display length up to " (Tags:"
+        let positions: Vec<usize> = items
+            .iter()
+            .map(|i| i.display_text().find(" (Tags:").unwrap())
+            .collect();
+        assert!(positions.iter().all(|&p| p == positions[0]));
+    }
 }

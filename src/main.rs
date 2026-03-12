@@ -46,9 +46,7 @@ enum Commands {
     Compare(CompareArgs),
 }
 
-/// Determines the default working directory for the application.
-///
-/// Defaults to "~/devel/connectedhomeip".
+/// Last-resort workdir when neither `--workdir` nor a saved default is available.
 fn hardcoded_default_workdir() -> String {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -57,10 +55,6 @@ fn hardcoded_default_workdir() -> String {
         .to_string()
 }
 
-/// The main entry point of the application.
-///
-/// Parses command line arguments, validates the working directory,
-/// and dispatches to the appropriate subcommand handler.
 fn main() -> Result<()> {
     let cli = Cli::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or(&cli.log_level)).init();
@@ -73,8 +67,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Resolves the workdir, validates it, saves it for future runs, then dispatches.
 fn run_app(cli: &Cli) -> Result<()> {
-    let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
+    let mut defaults = defaults::ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
 
     let workdir_str = cli
         .workdir
@@ -96,7 +91,7 @@ fn run_app(cli: &Cli) -> Result<()> {
     if defaults.workdir.as_deref() != Some(workdir_str.as_str()) {
         debug!("Saving new default workdir: {}", workdir_str);
         defaults.workdir = Some(workdir_str);
-        defaults::save_defaults(&defaults).wrap_err("Failed to save defaults")?;
+        defaults.save().wrap_err("Failed to save defaults")?;
     }
 
     match &cli.command {
