@@ -1,5 +1,5 @@
 use clap::Parser;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -35,8 +35,12 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
 
     let relative_output_dir = format!("out/branch-builds/{}", tag);
     let output_dir = workdir.join(&relative_output_dir);
-    std::fs::create_dir_all(&output_dir)
-        .wrap_err_with(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    std::fs::create_dir_all(&output_dir).wrap_err_with(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     info!("Output directory: {}", output_dir.display());
 

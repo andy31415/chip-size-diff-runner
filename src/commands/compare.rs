@@ -1,5 +1,5 @@
 use clap::Parser;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -171,12 +171,7 @@ fn resolve_compare_args(
 ///
 /// Uses `uv run` to execute the Python script `scripts/tools/binary_elf_size_diff.py`,
 /// passing the file paths and any extra arguments.
-fn run_diff(
-    from_path: &Path,
-    to_path: &Path,
-    workdir: &Path,
-    extra_args: &[String],
-) -> Result<()> {
+fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[String]) -> Result<()> {
     if !from_path.exists() {
         error!("From file not found: {}", from_path.display());
         return Err(eyre!("From file not found: {}", from_path.display()));
@@ -222,13 +217,10 @@ fn run_diff(
 /// Handles the logic for the `compare` subcommand.
 ///
 /// Resolves the arguments (potentially interactively) and then runs the diff process.
-pub fn handle_compare(
-    args: &CompareArgs,
-    workdir: &Path,
-) -> Result<()> {
+pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
     let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
-    let resolved_args =
-        resolve_compare_args(args, workdir, &defaults).wrap_err("Failed to resolve compare arguments")?;
+    let resolved_args = resolve_compare_args(args, workdir, &defaults)
+        .wrap_err("Failed to resolve compare arguments")?;
 
     run_diff(
         &resolved_args.from_path,

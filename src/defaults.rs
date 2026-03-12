@@ -1,4 +1,4 @@
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -28,9 +28,11 @@ pub fn load_defaults() -> Result<ComparisonDefaults> {
         return Ok(ComparisonDefaults::default());
     }
 
-    let mut file = fs::File::open(&path).wrap_err_with(|| format!("Failed to open defaults file: {}", path.display()))?;
+    let mut file = fs::File::open(&path)
+        .wrap_err_with(|| format!("Failed to open defaults file: {}", path.display()))?;
     let mut contents = String::new();
-    file.read_to_string(&mut contents).wrap_err_with(|| format!("Failed to read defaults file: {}", path.display()))?;
+    file.read_to_string(&mut contents)
+        .wrap_err_with(|| format!("Failed to read defaults file: {}", path.display()))?;
 
     match toml::from_str(&contents) {
         Ok(defaults) => {
@@ -51,10 +53,13 @@ pub fn load_defaults() -> Result<ComparisonDefaults> {
 /// Saves the given comparison defaults to the cache file.
 pub fn save_defaults(defaults: &ComparisonDefaults) -> Result<()> {
     let path = get_cache_file_path().wrap_err("Failed to get cache file path")?;
-    let toml_string = toml::to_string_pretty(defaults).wrap_err("Failed to serialize defaults to TOML")?;
+    let toml_string =
+        toml::to_string_pretty(defaults).wrap_err("Failed to serialize defaults to TOML")?;
 
-    let mut file = fs::File::create(&path).wrap_err_with(|| format!("Failed to create defaults file: {}", path.display()))?;
-    file.write_all(toml_string.as_bytes()).wrap_err_with(|| format!("Failed to write defaults to file: {}", path.display()))?;
+    let mut file = fs::File::create(&path)
+        .wrap_err_with(|| format!("Failed to create defaults file: {}", path.display()))?;
+    file.write_all(toml_string.as_bytes())
+        .wrap_err_with(|| format!("Failed to write defaults to file: {}", path.display()))?;
     debug!("Saved defaults: {:?} to {}", defaults, path.display());
     Ok(())
 }

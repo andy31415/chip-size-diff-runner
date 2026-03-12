@@ -1,4 +1,4 @@
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use goblin::elf::Elf;
 use log::debug;
 use skim::prelude::{Skim, SkimItemReader, SkimOptionsBuilder};
@@ -34,7 +34,9 @@ impl BuildArtifacts {
                 match fs::read(path) {
                     Ok(buffer) => {
                         if Elf::parse(&buffer).is_ok() {
-                            let relative_path = path.strip_prefix(&builds_dir).wrap_err("Failed to strip prefix from path")?;
+                            let relative_path = path
+                                .strip_prefix(&builds_dir)
+                                .wrap_err("Failed to strip prefix from path")?;
                             let components: Vec<&str> = relative_path
                                 .iter()
                                 .map(|s| s.to_str().unwrap_or(""))
@@ -147,11 +149,7 @@ pub fn select_string(
 }
 
 /// Presents an interactive fuzzy finder for choosing a tag from a list.
-pub fn select_tag(
-    prompt: &str,
-    tags: &[String],
-    default_item: Option<String>,
-) -> Result<String> {
+pub fn select_tag(prompt: &str, tags: &[String], default_item: Option<String>) -> Result<String> {
     let owned_tags: Vec<String> = tags.to_vec();
     fuzzy_select(prompt, owned_tags, default_item)
 }

@@ -1,5 +1,5 @@
 use crate::selector;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use log::{debug, warn};
 use std::path::Path;
 use std::process::Command;
@@ -36,10 +36,7 @@ fn is_working_copy_clean(workdir: &Path) -> Result<bool> {
 }
 
 /// Gets the first bookmark name at the given revision, if any.
-fn get_bookmark_at(
-    workdir: &Path,
-    rev: &str,
-) -> Result<Option<String>> {
+fn get_bookmark_at(workdir: &Path, rev: &str) -> Result<Option<String>> {
     let bookmarks = run_jj_command(workdir, &["bookmark", "list", "-r", rev])
         .wrap_err_with(|| format!("Failed to list bookmarks for rev: {}", rev))?;
     Ok(bookmarks
@@ -67,7 +64,8 @@ fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String> {
 
 /// Gets a list of recent bookmark names.
 fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>> {
-    let output = run_jj_command(workdir, &["bookmark", "list"]).wrap_err("Failed to list bookmarks")?;
+    let output =
+        run_jj_command(workdir, &["bookmark", "list"]).wrap_err("Failed to list bookmarks")?;
     Ok(output
         .lines()
         .map(|line| line.split(":").next().unwrap_or("").trim().to_string())
@@ -76,10 +74,7 @@ fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>> {
 }
 
 /// Generates a tag to be used for the build output directory.
-pub fn generate_tag(
-    workdir: &Path,
-    explicit_tag: Option<String>,
-) -> Result<String> {
+pub fn generate_tag(workdir: &Path, explicit_tag: Option<String>) -> Result<String> {
     if let Some(tag) = explicit_tag {
         return Ok(tag);
     }
