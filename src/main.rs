@@ -1,10 +1,10 @@
 use clap::{Parser, Subcommand};
-use dialoguer::{Select, theme::ColorfulTheme};
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str;
-use walkdir::WalkDir;
+
+mod selector;
+use selector::BuildArtifacts;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -45,10 +45,10 @@ struct BuildArgs {
 
 #[derive(Parser, Debug)]
 struct CompareArgs {
-    /// Baseline build file path
+    /// Baseline build file path (e.g., out/branch-builds/tag/app)
     from_file: Option<String>,
 
-    /// Comparison build file path
+    /// Comparison build file path (e.g., out/branch-builds/tag/app)
     to_file: Option<String>,
 }
 
@@ -162,61 +162,6 @@ fn execute_build(
     Ok(())
 }
 
-fn find_build_artifacts(workdir: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let builds_dir = workdir.join("out/branch-builds");
-    let mut artifacts = Vec::new();
-
-    if !builds_dir.exists() {
-        return Ok(artifacts);
-    }
-
-    for entry in WalkDir::new(builds_dir).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            if let Some(filename) = entry.path().file_name().and_then(|n| n.to_str()) {
-                // Basic filter for potential ELF files (no extension or common binary ones)
-                if !filename.contains('.') || filename.ends_with(".elf") || filename.ends_with(".bin") {
-                    let relative_path = entry.path().strip_prefix(workdir)?.to_string_lossy().to_string();
-                    artifacts.push(relative_path);
-                }
-            }
-        }
-    }
-
-    // Parse and sort artifacts
-    // Group by app_path, then sort by tag
-    let mut grouped: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    for artifact in artifacts {
-        let parts: Vec<&str> = artifact.split('/').collect();
-        if parts.len() > 3 {
-            let tag = parts[2].to_string();
-            let app_path = parts[3..].join("/");
-            grouped.entry(app_path).or_default().push((tag, artifact));
-        }
-    }
-
-    let mut sorted_artifacts = Vec::new();
-    for (_, mut builds) in grouped {
-        builds.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by tag
-        for (_, full_path) in builds {
-            sorted_artifacts.push(full_path);
-        }
-    }
-
-    Ok(sorted_artifacts)
-}
-
-fn select_file(prompt: &str, artifacts: &[String]) -> Result<String, Box<dyn std::error::Error>> {
-    if artifacts.is_empty() {
-        return Err("No build artifacts found to select from.".into());
-    }
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .items(artifacts)
-        .default(0)
-        .interact()?;
-    Ok(artifacts[selection].clone())
-}
-
 fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if !from_path.exists() {
         return Err(format!("From file not found: {}", from_path.display()).into());
@@ -250,20 +195,46 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path) -> Result<(), Box<
     Ok(())
 }
 
+fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = path_str.splitn(4, '/').collect();
+    if parts.len() == 4 && parts[0] == "out" && parts[1] == "branch-builds" {
+        Some((parts[2].to_string(), parts[3].to_string())) // (tag, app_path)
+    } else {
+        None
+    }
+}
+
 fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let artifacts = BuildArtifacts::find(workdir)?;
+
     let from_file = match &args.from_file {
         Some(f) => f.clone(),
         None => {
-            let artifacts = find_build_artifacts(workdir)?;
-            select_file("Select BASELINE file (from)", &artifacts)?
+            let app_paths = artifacts.get_app_paths();
+            if app_paths.is_empty() {
+                return Err("No build artifacts found.".into());
+            }
+            // TODO: Display available tags per app path
+            let selected_app_path = selector::select_string("Select application", &app_paths)?;
+            let tags = artifacts.get_tags_for_app(&selected_app_path).unwrap();
+            let selected_tag = selector::select_tag("Select BASELINE tag", tags)?;
+            selector::build_path(&selected_tag, &selected_app_path)
         }
     };
+
+    let (from_tag, from_app_path) = parse_artifact_path(&from_file)
+        .ok_or_else(|| format!("Invalid from_file path format: {}", from_file))?;
 
     let to_file = match &args.to_file {
         Some(f) => f.clone(),
         None => {
-            let artifacts = find_build_artifacts(workdir)?;
-            select_file("Select COMPARISON file (to)", &artifacts)?
+            let tags = artifacts.get_tags_for_app(&from_app_path).unwrap();
+            let other_tags: Vec<&String> = tags.iter().filter(|t| t != &&from_tag).collect();
+            if other_tags.is_empty() {
+                return Err(format!("No other tags found for application: {}", from_app_path).into());
+            }
+             let selected_tag = selector::select_string("Select COMPARISON tag", &other_tags)?;
+            selector::build_path(&selected_tag, &from_app_path)
         }
     };
 
