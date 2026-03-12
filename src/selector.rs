@@ -1,8 +1,9 @@
-use dialoguer::{Select, theme::ColorfulTheme};
 use goblin::elf::Elf;
 use log::debug;
+use skim::prelude::{Skim, SkimItemReader, SkimOptionsBuilder};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -82,37 +83,55 @@ impl BuildArtifacts {
     }
 }
 
-/// Presents an interactive selection prompt to the user to choose from a list of strings.
-///
-/// Uses `dialoguer` to display the `prompt` and the list of `items`.
+/// Presents an interactive fuzzy finder to the user to choose from a list of strings.
+fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
+    if items.is_empty() {
+        return Err("No items to select from.".into());
+    }
+
+    let options = SkimOptionsBuilder::default()
+        .prompt(prompt.to_string())
+        .build()?;
+
+    let item_string = items.join(
+        "
+",
+    );
+    let item_reader = SkimItemReader::default();
+    let skim_items = item_reader.of_bufread(Cursor::new(item_string));
+
+    let selected_items = Skim::run_with(options, Some(skim_items))
+        .map(|out| out.selected_items)
+        .unwrap_or_else(|_| Vec::new());
+
+    if selected_items.is_empty() {
+        Err("No selection made.".into())
+    } else {
+        Ok(selected_items[0].output().to_string())
+    }
+}
+
+/// Presents an interactive fuzzy finder for choosing from a list of string slices.
 pub fn select_string(
     prompt: &str,
     items: &[&String],
 ) -> Result<String, Box<dyn std::error::Error>> {
-    if items.is_empty() {
-        return Err("No items to select from.".into());
-    }
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .items(items)
-        .default(0)
-        .interact()?;
-    Ok(items[selection].clone())
+    let owned_items: Vec<String> = items.iter().map(|s| (*s).clone()).collect();
+    fuzzy_select(prompt, owned_items)
 }
 
-/// Presents an interactive selection prompt for choosing a tag from a list.
-///
-/// Similar to `select_string`, but specialized for `Vec<String>` of tags.
+/// Presents an interactive fuzzy finder for choosing a tag from a list.
 pub fn select_tag(prompt: &str, tags: &[String]) -> Result<String, Box<dyn std::error::Error>> {
-    if tags.is_empty() {
-        return Err("No tags to select from.".into());
-    }
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .items(tags)
-        .default(0)
-        .interact()?;
-    Ok(tags[selection].clone())
+    let owned_tags: Vec<String> = tags.to_vec();
+    fuzzy_select(prompt, owned_tags)
+}
+
+/// Presents an interactive fuzzy finder for choosing an application path.
+pub fn select_app_path(
+    prompt: &str,
+    app_paths: Vec<String>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    fuzzy_select(prompt, app_paths)
 }
 
 /// Constructs the relative path to an artifact given a tag and application path.
