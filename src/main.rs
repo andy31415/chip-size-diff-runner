@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use env_logger::Env;
 use log::{error, info};
 use std::path::PathBuf;
 
@@ -25,6 +26,12 @@ struct Cli {
     /// (e.g., 'scripts/activate.sh').
     #[arg(short, long, global = true, default_value_t = default_workdir())]
     workdir: String,
+
+    /// Set the logging level.
+    ///
+    /// Options: off, error, warn, info, debug, trace
+    #[arg(short, long, global = true, default_value = "info")]
+    log_level: String,
 }
 
 /// Represents the available subcommands for the CLI.
@@ -52,8 +59,9 @@ fn default_workdir() -> String {
 /// Parses command line arguments, validates the working directory,
 /// and dispatches to the appropriate subcommand handler.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
     let cli = Cli::parse();
+
+    env_logger::Builder::from_env(Env::default().default_filter_or(&cli.log_level)).init();
 
     let workdir = PathBuf::from(&cli.workdir);
     if !workdir.join("scripts/activate.sh").exists() {

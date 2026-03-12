@@ -56,12 +56,13 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std:
     info!("Building application: {}", args.application);
     info!("Using tag: {}", tag);
 
-    let output_dir = workdir.join(format!("out/branch-builds/{}", tag));
+    let relative_output_dir = format!("out/branch-builds/{}", tag);
+    let output_dir = workdir.join(&relative_output_dir);
     std::fs::create_dir_all(&output_dir)?;
 
     info!("Output directory: {}", output_dir.display());
 
-    execute_build(&args.application, &output_dir, workdir)?;
+    execute_build(&args.application, &relative_output_dir, &output_dir, workdir)?;
 
     Ok(())
 }
@@ -71,13 +72,13 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std:
 /// Dispatches to either a local bash execution or a podman container based on the application name prefix.
 fn execute_build(
     application: &str,
+    relative_output_dir: &str,
     output_dir: &Path,
     workdir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let output_dir_str = output_dir.to_string_lossy();
     let build_command = format!(
         "source ./scripts/activate.sh >/dev/null && ./scripts/build/build_examples.py --log-level info --target '{}' build --copy-artifacts-to {}",
-        application, output_dir_str
+        application, relative_output_dir
     );
 
     let mut command;
