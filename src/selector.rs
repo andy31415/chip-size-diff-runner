@@ -18,9 +18,9 @@ impl BuildArtifacts {
         }
 
         for entry in WalkDir::new(&builds_dir).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                if let Some(filename) = entry.path().file_name().and_then(|n| n.to_str()) {
-                    if !filename.contains('.') || filename.ends_with(".elf") || filename.ends_with(".bin") {
+            if entry.file_type().is_file()
+                && let Some(filename) = entry.path().file_name().and_then(|n| n.to_str())
+                    && (!filename.contains('.') || filename.ends_with(".elf") || filename.ends_with(".bin")) {
                         let relative_path = entry.path().strip_prefix(&builds_dir)?;
                         let components: Vec<&str> = relative_path.iter().map(|s| s.to_str().unwrap_or("")).collect();
 
@@ -30,8 +30,6 @@ impl BuildArtifacts {
                             apps.entry(app_path).or_default().push(tag);
                         }
                     }
-                }
-            }
         }
 
         // Sort tags for each app

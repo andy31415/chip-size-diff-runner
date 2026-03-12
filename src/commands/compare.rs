@@ -105,8 +105,8 @@ fn run_diff(
         command.args(extra_args);
     }
 
-    command.arg(&to_path);
-    command.arg(&from_path);
+    command.arg(to_path);
+    command.arg(from_path);
 
     debug!("Running command: {:?}", command);
     command.current_dir(workdir);
