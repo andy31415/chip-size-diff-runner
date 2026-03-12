@@ -101,37 +101,60 @@ impl BuildArtifacts {
             .map(|entries| entries.iter().map(|(tag, _)| tag.clone()).collect())
     }
 
-    /// Returns display strings (`"tag  (YYYY-MM-DD HH:MM)"`) for the given app, sorted newest-first.
+    /// Returns display strings for the given app, sorted newest-first, with the tag column
+    /// left-padded to a consistent width so the timestamps align vertically.
     pub fn get_tag_display_items_for_app(&self, app_path: &str) -> Option<Vec<String>> {
-        self.apps.get(app_path).map(|entries| {
+        let entries = self.apps.get(app_path)?;
+        let width = tag_column_width(entries);
+        Some(
             entries
                 .iter()
-                .map(|(tag, mtime)| format_tag_display(tag, *mtime))
-                .collect()
-        })
+                .map(|(tag, mtime)| format_tag_display(tag, *mtime, width))
+                .collect(),
+        )
     }
 
     /// Returns the display string for a specific `(app_path, tag)` pair, used to set skim defaults.
+    ///
+    /// Uses the same column width as `get_tag_display_items_for_app` so the string matches exactly.
     pub fn tag_to_display_item(&self, app_path: &str, tag: &str) -> Option<String> {
-        self.apps
-            .get(app_path)?
+        let entries = self.apps.get(app_path)?;
+        let width = tag_column_width(entries);
+        entries
             .iter()
             .find(|(t, _)| t == tag)
-            .map(|(t, mtime)| format_tag_display(t, *mtime))
+            .map(|(t, mtime)| format_tag_display(t, *mtime, width))
     }
 }
 
-/// Formats a tag name and its ELF modification time into a display string for skim.
-pub fn format_tag_display(tag: &str, mtime: SystemTime) -> String {
+/// Computes the tag column width for a set of entries: the longest tag name, capped at 30.
+fn tag_column_width(entries: &[(String, SystemTime)]) -> usize {
+    entries
+        .iter()
+        .map(|(tag, _)| tag.len())
+        .max()
+        .unwrap_or(0)
+        .min(30)
+}
+
+/// Formats a tag name and its ELF modification time into an aligned display string for skim.
+///
+/// The tag is left-padded to `width` characters so timestamps line up across all entries.
+fn format_tag_display(tag: &str, mtime: SystemTime, width: usize) -> String {
     let dt: DateTime<Local> = mtime.into();
-    format!("{}  ({})", tag, dt.format("%Y-%m-%d %H:%M"))
+    format!("{:<width$}  ({})", tag, dt.format("%Y-%m-%d %H:%M"))
 }
 
 /// Strips the date suffix from a skim display string to recover the raw tag name.
 ///
-/// Expects the format produced by `format_tag_display`: `"tag  (YYYY-MM-DD HH:MM)"`.
+/// Handles both padded (`"tag   (YYYY-MM-DD HH:MM)"`) and unpadded formats.
 pub fn parse_tag_from_display(display: &str) -> String {
-    display.split("  (").next().unwrap_or(display).to_string()
+    display
+        .split("  (")
+        .next()
+        .unwrap_or(display)
+        .trim()
+        .to_string()
 }
 
 /// Presents an interactive fuzzy finder to the user to choose from a list of strings.
