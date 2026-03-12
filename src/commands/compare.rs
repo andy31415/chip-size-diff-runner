@@ -170,3 +170,28 @@ pub fn handle_compare(
         &args.extra_diff_args,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_artifact_path_valid() {
+        assert_eq!(
+            parse_artifact_path("out/branch-builds/v1.0/app/test.elf"),
+            Some(("v1.0".to_string(), "app/test.elf".to_string()))
+        );
+        assert_eq!(
+            parse_artifact_path("out/branch-builds/my-tag/other_app"),
+            Some(("my-tag".to_string(), "other_app".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_artifact_path_invalid() {
+        assert_eq!(parse_artifact_path(""), None);
+        assert_eq!(parse_artifact_path("out/branch-builds/tag"), None); // Too short
+        assert_eq!(parse_artifact_path("foo/bar/tag/app"), None); // Wrong prefix
+        assert_eq!(parse_artifact_path("out/branch-builds/t1/t2/t3"), Some(("t1".to_string(), "t2/t3".to_string()))); // Deeper path
+    }
+}

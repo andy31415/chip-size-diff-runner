@@ -105,3 +105,20 @@ pub fn select_tag(prompt: &str, tags: &[String]) -> Result<String, Box<dyn std::
 pub fn build_path(tag: &str, app_path: &str) -> String {
     format!("out/branch-builds/{}/{}", tag, app_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_path() {
+        assert_eq!(
+            build_path("v1.0", "app/test.elf"),
+            "out/branch-builds/v1.0/app/test.elf"
+        );
+        assert_eq!(
+            build_path("my-tag", "other_app"),
+            "out/branch-builds/my-tag/other_app"
+        );
+    }
+}
