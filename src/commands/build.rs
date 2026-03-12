@@ -10,21 +10,21 @@ pub struct BuildArgs {
     /// Application to build (e.g., linux-x64-all-clusters-app).
     pub application: String,
 
-    /// Optional tag to associate with the build.
+    /// Optional tag/bookmark name to associate with the build.
     ///
-    /// If not provided, the tool will attempt to infer the current `jj` tag.
-    /// The build artifacts will be stored in a directory named after this tag.
+    /// If not provided, the tool will attempt to infer the current `jj` bookmark at @-.
+    /// The build artifacts will be stored in a directory named after this bookmark.
     #[arg(short, long)]
     pub tag: Option<String>,
 }
 
-/// Retrieves the latest `jj` tag from the current repository checkout.
+/// Retrieves the latest `jj` bookmark from the current repository checkout.
 ///
-/// Executes `jj tag list -r @-` to find the tag associated with the parent commit.
-fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    debug!("Attempting to get jj tag from workdir: {}", workdir.display());
+/// Executes `jj bookmark list -r @-` to find the bookmark associated with the parent commit.
+fn get_jj_bookmark(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    debug!("Attempting to get jj bookmark from workdir: {}", workdir.display());
     let command = Command::new("jj")
-        .arg("tag")
+        .arg("bookmark")
         .arg("list")
         .arg("-r")
         .arg("@-")
@@ -35,22 +35,22 @@ fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Erro
         Ok(output) => {
             let stdout = str::from_utf8(&output.stdout).unwrap_or("[non-utf8 stdout]");
             let stderr = str::from_utf8(&output.stderr).unwrap_or("[non-utf8 stderr]");
-            debug!("`jj tag list -r @-` status: {}", output.status);
-            debug!("`jj tag list -r @-` stdout:
+            debug!("`jj bookmark list -r @-` status: {}", output.status);
+            debug!("`jj bookmark list -r @-` stdout:
 {}", stdout);
-            debug!("`jj tag list -r @-` stderr:
+            debug!("`jj bookmark list -r @-` stderr:
 {}", stderr);
 
             if output.status.success() {
-                let tag = stdout
+                let bookmark = stdout
                     .lines()
                     .next()
                     .and_then(|line| line.split(':').next())
                     .map(str::trim);
-                debug!("Parsed tag: {:?}", tag);
-                Ok(tag.map(String::from))
+                debug!("Parsed bookmark: {:?}", bookmark);
+                Ok(bookmark.map(String::from))
             } else {
-                error!("jj tag command failed");
+                error!("jj bookmark command failed");
                 Ok(None)
             }
         }
@@ -63,16 +63,16 @@ fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Erro
 
 /// Handles the logic for the `build` subcommand.
 ///
-/// Determines the build tag, creates the output directory, and orchestrates the build execution.
+/// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let tag = match &args.tag {
         Some(t) => t.clone(),
-        None => get_jj_tag(workdir)?
-            .ok_or("Error: No --tag provided and no jj tag found at @- in this repository")?,
+        None => get_jj_bookmark(workdir)?
+            .ok_or("Error: No --tag provided and no jj bookmark found at @- in this repository")?,
     };
 
     info!("Building application: {}", args.application);
-    info!("Using tag: {}", tag);
+    info!("Using tag/bookmark: {}", tag);
 
     let relative_output_dir = format!("out/branch-builds/{}", tag);
     let output_dir = workdir.join(&relative_output_dir);
