@@ -8,25 +8,37 @@ mod selector;
 use commands::build::{self, BuildArgs};
 use commands::compare::{self, CompareArgs};
 
+/// A CLI tool to build and compare application binaries across different tags.
+///
+/// This tool helps automate the process of building a target application
+/// at different source code revisions (identified by jj tags) and then
+/// comparing the resulting artifacts, for example, to analyze size differences.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Working directory for all operations
+    /// Working directory for all operations.
+    ///
+    /// This directory should contain the source code and build scripts
+    /// (e.g., 'scripts/activate.sh').
     #[arg(short, long, global = true, default_value_t = default_workdir())]
     workdir: String,
 }
 
+/// Represents the available subcommands for the CLI.
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Build the application
+    /// Build the application at a specific tag.
     Build(BuildArgs),
-    /// Compare two builds
+    /// Compare two build artifacts.
     Compare(CompareArgs),
 }
 
+/// Determines the default working directory for the application.
+///
+/// Defaults to "~/devel/connectedhomeip".
 fn default_workdir() -> String {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -35,6 +47,10 @@ fn default_workdir() -> String {
         .to_string()
 }
 
+/// The main entry point of the application.
+///
+/// Parses command line arguments, validates the working directory,
+/// and dispatches to the appropriate subcommand handler.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let cli = Cli::parse();

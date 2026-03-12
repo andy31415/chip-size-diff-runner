@@ -5,24 +5,37 @@ use std::process::{Command, Stdio};
 
 use crate::selector::{self, BuildArtifacts};
 
+/// Arguments for the `compare` subcommand.
 #[derive(Parser, Debug)]
 pub struct CompareArgs {
-    /// Baseline build file path (e.g., out/branch-builds/tag/app)
+    /// Baseline build file path (e.g., out/branch-builds/tag/app).
+    ///
+    /// If omitted, an interactive selection will be shown.
     pub from_file: Option<String>,
 
-    /// Comparison build file path (e.g., out/branch-builds/tag/app)
+    /// Comparison build file path (e.g., out/branch-builds/tag/app).
+    ///
+    /// If omitted, an interactive selection will be shown based on the application
+    /// selected for `from_file`.
     pub to_file: Option<String>,
 
-    /// Extra arguments to pass to the diff script
+    /// Extra arguments to pass to the underlying diff script.
+    ///
+    /// These arguments are passed after `--` to this subcommand.
     #[arg(last = true)]
     pub extra_diff_args: Vec<String>,
 }
 
+/// Holds the fully resolved paths for the two artifacts to be compared.
 struct ResolvedCompareArgs {
     from_path: PathBuf,
     to_path: PathBuf,
 }
 
+/// Parses an artifact path string into tag and application path components.
+///
+/// Expected format: "out/branch-builds/<tag>/<app_path>"
+/// Returns `Some((tag, app_path))` on success, `None` otherwise.
 fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = path_str.splitn(4, '/').collect();
     if parts.len() == 4 && parts[0] == "out" && parts[1] == "branch-builds" {
@@ -32,6 +45,10 @@ fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
     }
 }
 
+/// Resolves the `from_file` and `to_file` arguments, prompting the user interactively if necessary.
+///
+/// If file paths are not provided in `args`, this function discovers available build artifacts
+/// and uses `dialoguer` to guide the user through selecting the application and tags to compare.
 fn resolve_compare_args(
     args: &CompareArgs,
     workdir: &Path,
@@ -87,6 +104,10 @@ fn resolve_compare_args(
     })
 }
 
+/// Executes the size difference script to compare the two artifact files.
+///
+/// Uses `uv run` to execute the Python script `scripts/tools/binary_elf_size_diff.py`,
+/// passing the file paths and any extra arguments.
 fn run_diff(
     from_path: &Path,
     to_path: &Path,
@@ -134,6 +155,9 @@ fn run_diff(
     Ok(())
 }
 
+/// Handles the logic for the `compare` subcommand.
+///
+/// Resolves the arguments (potentially interactively) and then runs the diff process.
 pub fn handle_compare(
     args: &CompareArgs,
     workdir: &Path,

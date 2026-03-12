@@ -4,16 +4,23 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str;
 
+/// Arguments for the `build` subcommand.
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
-    /// Application to build
+    /// Application to build (e.g., linux-x64-all-clusters-app).
     pub application: String,
 
-    /// Optional tag for the build
+    /// Optional tag to associate with the build.
+    ///
+    /// If not provided, the tool will attempt to infer the current `jj` tag.
+    /// The build artifacts will be stored in a directory named after this tag.
     #[arg(short, long)]
     pub tag: Option<String>,
 }
 
+/// Retrieves the latest `jj` tag from the current repository checkout.
+///
+/// Executes `jj tag list -r @-` to find the tag associated with the parent commit.
 fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let output = Command::new("jj")
         .arg("tag")
@@ -36,6 +43,9 @@ fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Erro
     }
 }
 
+/// Handles the logic for the `build` subcommand.
+///
+/// Determines the build tag, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let tag = match &args.tag {
         Some(t) => t.clone(),
@@ -56,6 +66,9 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// Executes the application build command.
+///
+/// Dispatches to either a local bash execution or a podman container based on the application name prefix.
 fn execute_build(
     application: &str,
     output_dir: &Path,
