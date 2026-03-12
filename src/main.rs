@@ -18,6 +18,8 @@ struct Cli {
 enum Commands {
     /// Build the application
     Build(BuildArgs),
+    /// Compare two builds
+    Compare(CompareArgs),
 }
 
 fn default_workdir() -> String {
@@ -38,6 +40,17 @@ struct BuildArgs {
     tag: Option<String>,
 }
 
+#[derive(Parser, Debug)]
+struct CompareArgs {
+    /// Baseline build file path
+    #[arg(short, long)]
+    from: Option<String>,
+
+    /// Comparison build file path
+    #[arg(short, long)]
+    to: Option<String>,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -54,6 +67,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match &cli.command {
         Commands::Build(args) => {
             handle_build(args, &workdir)?;
+        }
+        Commands::Compare(args) => {
+            handle_compare(args, &workdir)?;
         }
     }
 
@@ -142,5 +158,47 @@ fn execute_build(
     }
 
     println!("Artifacts in: {}", output_dir.display());
+    Ok(())
+}
+
+fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if let (Some(from_file), Some(to_file)) = (&args.from, &args.to) {
+        let from_path = workdir.join(from_file);
+        let to_path = workdir.join(to_file);
+
+        if !from_path.exists() {
+            return Err(format!("From file not found: {}", from_path.display()).into());
+        }
+        if !to_path.exists() {
+            return Err(format!("To file not found: {}", to_path.display()).into());
+        }
+
+        let diff_script = workdir.join("scripts/tools/binary_elf_size_diff.py");
+
+        if !diff_script.exists() {
+            return Err(format!("Diff script not found: {}", diff_script.display()).into());
+        }
+
+        println!("Comparing {} and {}", from_path.display(), to_path.display());
+
+        let mut command = Command::new("python3");
+        command
+            .arg(diff_script)
+            .arg("--output")
+            .arg("csv")
+            .arg(&to_path)
+            .arg(&from_path);
+
+        command.current_dir(workdir);
+        let status = command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status()?;
+
+        if !status.success() {
+            return Err(format!("Diff command failed with status: {}", status).into());
+        }
+    } else {
+        // TODO: Implement interactive file selection
+        println!("Interactive mode not yet implemented. Please provide --from and --to.");
+    }
+
     Ok(())
 }
