@@ -41,7 +41,7 @@ fn get_bookmark_at(
     Ok(bookmarks
         .lines()
         .next()
-        .map(|line| line.splitn(2, ":").next().unwrap_or("").trim().to_string())
+        .map(|line| line.split(":").next().unwrap_or("").trim().to_string())
         .filter(|s| !s.is_empty()))
 }
 
@@ -65,7 +65,7 @@ fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>, Box<dyn std::erro
     let output = run_jj_command(workdir, &["bookmark", "list"])?;
     Ok(output
         .lines()
-        .map(|line| line.splitn(2, ":").next().unwrap_or("").trim().to_string())
+        .map(|line| line.split(":").next().unwrap_or("").trim().to_string())
         .filter(|s| !s.is_empty())
         .collect())
 }
