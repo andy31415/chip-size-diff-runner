@@ -216,7 +216,7 @@ pub fn handle_compare(
     args: &CompareArgs,
     workdir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-   let mut defaults = defaults::load_defaults()?;
+    let mut defaults = defaults::load_defaults()?;
     let resolved_args = resolve_compare_args(args, workdir, &defaults)?;
 
     run_diff(

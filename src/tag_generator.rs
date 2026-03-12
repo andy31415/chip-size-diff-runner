@@ -1,7 +1,7 @@
+use crate::selector;
 use log::{debug, warn};
 use std::path::Path;
 use std::process::Command;
-use crate::selector;
 
 /// Runs a jj command and returns the trimmed stdout.
 fn run_jj_command(workdir: &Path, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
@@ -11,10 +11,17 @@ fn run_jj_command(workdir: &Path, args: &[&str]) -> Result<String, Box<dyn std::
         .output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        warn!("jj command {:?} failed: {}
-{}", args, output.status, stderr);
-        return Err(format!("jj command {:?} failed: {}
-{}", args, output.status, stderr).into());
+        warn!(
+            "jj command {:?} failed: {}
+{}",
+            args, output.status, stderr
+        );
+        return Err(format!(
+            "jj command {:?} failed: {}
+{}",
+            args, output.status, stderr
+        )
+        .into());
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -26,16 +33,31 @@ fn is_working_copy_clean(workdir: &Path) -> Result<bool, Box<dyn std::error::Err
 }
 
 /// Gets the first bookmark name at the given revision, if any.
-fn get_bookmark_at(workdir: &Path, rev: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn get_bookmark_at(
+    workdir: &Path,
+    rev: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let bookmarks = run_jj_command(workdir, &["bookmark", "list", "-r", rev])?;
-    Ok(bookmarks.lines().next().map(|line| {
-        line.splitn(2, ":").next().unwrap_or("").trim().to_string()
-    }).filter(|s| !s.is_empty()))
+    Ok(bookmarks
+        .lines()
+        .next()
+        .map(|line| line.splitn(2, ":").next().unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty()))
 }
 
 /// Gets the short commit ID of the given revision.
 fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String, Box<dyn std::error::Error>> {
-    run_jj_command(workdir, &["log", "-r", rev, "--no-graph", "--template", "change_id.shortest()"]) 
+    run_jj_command(
+        workdir,
+        &[
+            "log",
+            "-r",
+            rev,
+            "--no-graph",
+            "--template",
+            "change_id.shortest()",
+        ],
+    )
 }
 
 /// Gets a list of recent bookmark names.

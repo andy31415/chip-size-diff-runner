@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use log::{error, info, debug};
+use log::{debug, error, info};
 use std::path::PathBuf;
 
 mod commands;
