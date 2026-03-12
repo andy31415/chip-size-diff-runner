@@ -6,6 +6,8 @@ use std::str;
 mod selector;
 use selector::BuildArtifacts;
 
+use log::{debug, error, info}; // Import log macros
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -50,20 +52,26 @@ struct CompareArgs {
 
     /// Comparison build file path (e.g., out/branch-builds/tag/app)
     to_file: Option<String>,
+
+    /// Extra arguments to pass to the diff script
+    #[arg(last = true)]
+    extra_diff_args: Vec<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init(); // Initialize logger
     let cli = Cli::parse();
 
     let workdir = PathBuf::from(&cli.workdir);
     if !workdir.join("scripts/activate.sh").exists() {
+        error!("Invalid workdir: {}. 'scripts/activate.sh' not found.", cli.workdir);
         return Err(format!(
             "Invalid workdir: {}. 'scripts/activate.sh' not found.",
             cli.workdir
         )
         .into());
     }
-    println!("Using working directory: {}", workdir.display());
+    info!("Using working directory: {}", workdir.display());
 
     match &cli.command {
         Commands::Build(args) => {
@@ -107,13 +115,13 @@ fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::err
         )?,
     };
 
-    println!("Building application: {}", args.application);
-    println!("Using tag: {}", tag);
+    info!("Building application: {}", args.application);
+    info!("Using tag: {}", tag);
 
     let output_dir = workdir.join(format!("out/branch-builds/{}", tag));
     std::fs::create_dir_all(&output_dir)?;
 
-    println!("Output directory: {}", output_dir.display());
+    info!("Output directory: {}", output_dir.display());
 
     execute_build(&args.application, &output_dir, workdir)?;
 
@@ -134,11 +142,11 @@ fn execute_build(
 
     let mut command;
     if application.starts_with("linux-x64-") {
-        println!("Building on HOST...");
+        info!("Building on HOST...");
         command = Command::new("bash");
         command.arg("-c").arg(build_command);
     } else {
-        println!("Building via PODMAN...");
+        info!("Building via PODMAN...");
         command = Command::new("podman");
         command.args([
             "exec",
@@ -151,45 +159,54 @@ fn execute_build(
         ]);
     }
 
+    debug!("Executing build command: {:?}", command);
     command.current_dir(workdir);
     let status = command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status()?;
 
     if !status.success() {
+        error!("Build command failed with status: {}", status);
         return Err(format!("Build command failed with status: {}", status).into());
     }
 
-    println!("Artifacts in: {}", output_dir.display());
+    info!("Artifacts in: {}", output_dir.display());
     Ok(())
 }
 
-fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn run_diff(
+    from_path: &Path,
+    to_path: &Path,
+    workdir: &Path,
+    extra_args: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     if !from_path.exists() {
+        error!("From file not found: {}", from_path.display());
         return Err(format!("From file not found: {}", from_path.display()).into());
     }
     if !to_path.exists() {
+        error!("To file not found: {}", to_path.display());
         return Err(format!("To file not found: {}", to_path.display()).into());
     }
 
-    let diff_script = workdir.join("scripts/tools/binary_elf_size_diff.py");
+    info!("Comparing {} and {}", from_path.display(), to_path.display());
 
-    if !diff_script.exists() {
-        return Err(format!("Diff script not found: {}", diff_script.display()).into());
+    let mut command = Command::new("uv");
+    command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
+
+    if extra_args.is_empty() {
+        command.args(["--output", "table"]);
+    } else {
+        command.args(extra_args);
     }
 
-    println!("Comparing {} and {}", from_path.display(), to_path.display());
+    command.arg(&to_path);
+    command.arg(&from_path);
 
-    let mut command = Command::new("python3");
-    command
-        .arg(diff_script)
-        .arg("--output")
-        .arg("csv")
-        .arg(&to_path)
-        .arg(&from_path);
-
+    debug!("Running command: {:?}", command);
     command.current_dir(workdir);
     let status = command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status()?;
 
     if !status.success() {
+        error!("Diff command failed with status: {}", status);
         return Err(format!("Diff command failed with status: {}", status).into());
     }
     Ok(())
@@ -241,5 +258,5 @@ fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std:
     let from_path = workdir.join(&from_file);
     let to_path = workdir.join(&to_file);
 
-    run_diff(&from_path, &to_path, workdir)
+    run_diff(&from_path, &to_path, workdir, &args.extra_diff_args)
 }
