@@ -10,11 +10,13 @@ use crate::selector::{self, BuildArtifacts};
 pub struct CompareArgs {
     /// Baseline build file path (e.g., out/branch-builds/tag/app).
     ///
+    /// Can be an absolute path within the workdir, or relative to the workdir.
     /// If omitted, an interactive selection will be shown.
     pub from_file: Option<String>,
 
     /// Comparison build file path (e.g., out/branch-builds/tag/app).
     ///
+    /// Can be an absolute path within the workdir, or relative to the workdir.
     /// If omitted, an interactive selection will be shown based on the application
     /// selected for `from_file`.
     pub to_file: Option<String>,
@@ -45,6 +47,19 @@ fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
     }
 }
 
+/// Normalizes a given path string. If the path is absolute, it attempts to strip
+/// the workdir prefix to make it relative. Otherwise, returns it as is.
+fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
+    let path = PathBuf::from(path_str);
+    if path.is_absolute() {
+        path.strip_prefix(workdir)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| path_str.to_string())
+    } else {
+        path_str.to_string()
+    }
+}
+
 /// Resolves the `from_file` and `to_file` arguments, prompting the user interactively if necessary.
 ///
 /// If file paths are not provided in `args`, this function discovers available build artifacts
@@ -55,8 +70,8 @@ fn resolve_compare_args(
 ) -> Result<ResolvedCompareArgs, Box<dyn std::error::Error>> {
     let artifacts = BuildArtifacts::find(workdir)?;
 
-    let from_file = match &args.from_file {
-        Some(f) => f.clone(),
+    let from_file_str = match &args.from_file {
+        Some(f) => normalize_path_str(f, workdir),
         None => {
             let app_paths = artifacts.get_app_paths();
             if app_paths.is_empty() {
@@ -80,11 +95,11 @@ fn resolve_compare_args(
         }
     };
 
-    let (from_tag, from_app_path) = parse_artifact_path(&from_file)
-        .ok_or_else(|| format!("Invalid from_file path format: {}", from_file))?;
+    let (from_tag, from_app_path) = parse_artifact_path(&from_file_str)
+        .ok_or_else(|| format!("Invalid from_file path format: {}. Expected format: out/branch-builds/<tag>/<app_path>", from_file_str))?;
 
-    let to_file = match &args.to_file {
-        Some(f) => f.clone(),
+    let to_file_str = match &args.to_file {
+        Some(f) => normalize_path_str(f, workdir),
         None => {
             let tags = artifacts.get_tags_for_app(&from_app_path).unwrap();
             let other_tags: Vec<&String> = tags.iter().filter(|t| t != &&from_tag).collect();
@@ -99,8 +114,8 @@ fn resolve_compare_args(
     };
 
     Ok(ResolvedCompareArgs {
-        from_path: workdir.join(&from_file),
-        to_path: workdir.join(&to_file),
+        from_path: workdir.join(&from_file_str),
+        to_path: workdir.join(&to_file_str),
     })
 }
 
@@ -196,5 +211,23 @@ mod tests {
             parse_artifact_path("out/branch-builds/t1/t2/t3"),
             Some(("t1".to_string(), "t2/t3".to_string()))
         ); // Deeper path
+    }
+
+    #[test]
+    fn test_normalize_path_str() {
+        let workdir = PathBuf::from("/home/user/project");
+        assert_eq!(
+            normalize_path_str("out/branch-builds/tag/app", &workdir),
+            "out/branch-builds/tag/app"
+        );
+        assert_eq!(
+            normalize_path_str("/home/user/project/out/branch-builds/tag/app", &workdir),
+            "out/branch-builds/tag/app"
+        );
+        assert_eq!(
+            normalize_path_str("/other/path/out/branch-builds/tag/app", &workdir),
+            "/other/path/out/branch-builds/tag/app"
+        );
+        assert_eq!(normalize_path_str("relative/path", &workdir), "relative/path");
     }
 }
