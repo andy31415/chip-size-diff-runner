@@ -1,10 +1,10 @@
 use dialoguer::{Select, theme::ColorfulTheme};
+use goblin::elf::Elf;
+use log::debug;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use goblin::elf::Elf;
-use log::debug;
 
 /// Represents the collection of build artifacts found in the working directory.
 pub struct BuildArtifacts {
@@ -46,7 +46,10 @@ impl BuildArtifacts {
                                 apps.entry(app_path).or_default().push(tag);
                                 debug!("Found ELF artifact: {}", path.display());
                             } else {
-                                debug!("Skipping file with unexpected path structure: {}", path.display());
+                                debug!(
+                                    "Skipping file with unexpected path structure: {}",
+                                    path.display()
+                                );
                             }
                         } else {
                             debug!("Skipping non-ELF file: {}", path.display());

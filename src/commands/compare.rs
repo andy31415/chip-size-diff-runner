@@ -192,6 +192,9 @@ mod tests {
         assert_eq!(parse_artifact_path(""), None);
         assert_eq!(parse_artifact_path("out/branch-builds/tag"), None); // Too short
         assert_eq!(parse_artifact_path("foo/bar/tag/app"), None); // Wrong prefix
-        assert_eq!(parse_artifact_path("out/branch-builds/t1/t2/t3"), Some(("t1".to_string(), "t2/t3".to_string()))); // Deeper path
+        assert_eq!(
+            parse_artifact_path("out/branch-builds/t1/t2/t3"),
+            Some(("t1".to_string(), "t2/t3".to_string()))
+        ); // Deeper path
     }
 }

@@ -22,7 +22,10 @@ pub struct BuildArgs {
 ///
 /// Executes `jj bookmark list -r @-` to find the bookmark associated with the parent commit.
 fn get_jj_bookmark(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    debug!("Attempting to get jj bookmark from workdir: {}", workdir.display());
+    debug!(
+        "Attempting to get jj bookmark from workdir: {}",
+        workdir.display()
+    );
     let command = Command::new("jj")
         .arg("bookmark")
         .arg("list")
@@ -36,10 +39,16 @@ fn get_jj_bookmark(workdir: &Path) -> Result<Option<String>, Box<dyn std::error:
             let stdout = str::from_utf8(&output.stdout).unwrap_or("[non-utf8 stdout]");
             let stderr = str::from_utf8(&output.stderr).unwrap_or("[non-utf8 stderr]");
             debug!("`jj bookmark list -r @-` status: {}", output.status);
-            debug!("`jj bookmark list -r @-` stdout:
-{}", stdout);
-            debug!("`jj bookmark list -r @-` stderr:
-{}", stderr);
+            debug!(
+                "`jj bookmark list -r @-` stdout:
+{}",
+                stdout
+            );
+            debug!(
+                "`jj bookmark list -r @-` stderr:
+{}",
+                stderr
+            );
 
             if output.status.success() {
                 let bookmark = stdout
@@ -80,7 +89,12 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std:
 
     info!("Output directory: {}", output_dir.display());
 
-    execute_build(&args.application, &relative_output_dir, &output_dir, workdir)?;
+    execute_build(
+        &args.application,
+        &relative_output_dir,
+        &output_dir,
+        workdir,
+    )?;
 
     Ok(())
 }
