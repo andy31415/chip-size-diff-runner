@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use color_eyre::eyre::{self, Context, Result};
 use env_logger::Env;
 use log::{debug, error, info};
 use std::path::PathBuf;
@@ -60,11 +61,20 @@ fn hardcoded_default_workdir() -> String {
 ///
 /// Parses command line arguments, validates the working directory,
 /// and dispatches to the appropriate subcommand handler.
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or(&cli.log_level)).init();
+    color_eyre::install()?;
 
-    let mut defaults = defaults::load_defaults()?;
+    if let Err(e) = run_app(&cli) {
+        error!("{:?}", e);
+        return Err(e);
+    }
+    Ok(())
+}
+
+fn run_app(cli: &Cli) -> Result<()> {
+    let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
 
     let workdir_str = cli
         .workdir
@@ -75,15 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workdir = PathBuf::from(&workdir_str);
 
     if !workdir.join("scripts/activate.sh").exists() {
-        error!(
+        return Err(eyre::eyre!(
             "Invalid workdir: {}. 'scripts/activate.sh' not found.",
             workdir.display()
-        );
-        return Err(format!(
-            "Invalid workdir: {}. 'scripts/activate.sh' not found.",
-            workdir.display()
-        )
-        .into());
+        ));
     }
     info!("Using working directory: {}", workdir.display());
 
@@ -91,15 +96,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if defaults.workdir.as_deref() != Some(workdir_str.as_str()) {
         debug!("Saving new default workdir: {}", workdir_str);
         defaults.workdir = Some(workdir_str);
-        defaults::save_defaults(&defaults)?;
+        defaults::save_defaults(&defaults).wrap_err("Failed to save defaults")?;
     }
 
     match &cli.command {
         Commands::Build(args) => {
-            build::handle_build(args, &workdir)?;
+            build::handle_build(args, &workdir).wrap_err("Build command failed")?;
         }
         Commands::Compare(args) => {
-            compare::handle_compare(args, &workdir)?;
+            compare::handle_compare(args, &workdir).wrap_err("Compare command failed")?;
         }
     }
 

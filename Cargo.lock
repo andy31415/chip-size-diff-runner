@@ -193,9 +193,11 @@ name = "branch_diff"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "color-eyre",
  "dialoguer",
  "dirs",
  "env_logger",
+ "eyre",
  "goblin",
  "log",
  "serde",

@@ -1,14 +1,16 @@
 use crate::selector;
+use eyre::{eyre, Result, WrapErr};
 use log::{debug, warn};
 use std::path::Path;
 use std::process::Command;
 
 /// Runs a jj command and returns the trimmed stdout.
-fn run_jj_command(workdir: &Path, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
+fn run_jj_command(workdir: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new("jj")
         .args(args)
         .current_dir(workdir)
-        .output()?;
+        .output()
+        .wrap_err_with(|| format!("Failed to execute jj command: {:?}", args))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         warn!(
@@ -16,19 +18,20 @@ fn run_jj_command(workdir: &Path, args: &[&str]) -> Result<String, Box<dyn std::
 {}",
             args, output.status, stderr
         );
-        return Err(format!(
+        return Err(eyre!(
             "jj command {:?} failed: {}
 {}",
-            args, output.status, stderr
-        )
-        .into());
+            args,
+            output.status,
+            stderr
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Checks if the jj working copy is clean.
-fn is_working_copy_clean(workdir: &Path) -> Result<bool, Box<dyn std::error::Error>> {
-    let status = run_jj_command(workdir, &["status"])?;
+fn is_working_copy_clean(workdir: &Path) -> Result<bool> {
+    let status = run_jj_command(workdir, &["status"]).wrap_err("Failed to run jj status")?;
     Ok(!status.contains("Working copy changes"))
 }
 
@@ -36,8 +39,9 @@ fn is_working_copy_clean(workdir: &Path) -> Result<bool, Box<dyn std::error::Err
 fn get_bookmark_at(
     workdir: &Path,
     rev: &str,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let bookmarks = run_jj_command(workdir, &["bookmark", "list", "-r", rev])?;
+) -> Result<Option<String>> {
+    let bookmarks = run_jj_command(workdir, &["bookmark", "list", "-r", rev])
+        .wrap_err_with(|| format!("Failed to list bookmarks for rev: {}", rev))?;
     Ok(bookmarks
         .lines()
         .next()
@@ -46,7 +50,7 @@ fn get_bookmark_at(
 }
 
 /// Gets the short commit ID of the given revision.
-fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String> {
     run_jj_command(
         workdir,
         &[
@@ -58,11 +62,12 @@ fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String, Box<dyn std:
             "change_id.shortest()",
         ],
     )
+    .wrap_err_with(|| format!("Failed to get short commit ID for rev: {}", rev))
 }
 
 /// Gets a list of recent bookmark names.
-fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let output = run_jj_command(workdir, &["bookmark", "list"])?;
+fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>> {
+    let output = run_jj_command(workdir, &["bookmark", "list"]).wrap_err("Failed to list bookmarks")?;
     Ok(output
         .lines()
         .map(|line| line.split(":").next().unwrap_or("").trim().to_string())
@@ -74,7 +79,7 @@ fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>, Box<dyn std::erro
 pub fn generate_tag(
     workdir: &Path,
     explicit_tag: Option<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     if let Some(tag) = explicit_tag {
         return Ok(tag);
     }
@@ -106,16 +111,16 @@ pub fn generate_tag(
     let selection_result = selector::select_app_path(prompt, options, None);
     debug!("tag_generator selection_result: {:?}", selection_result);
 
-    let selection = selection_result?;
+    let selection = selection_result.wrap_err("Failed to select tag")?;
 
     if selection.starts_with("Use current commit ID: ") {
         Ok(format!("jj-{}", current_commit_id))
     } else if selection == "Enter custom tag" {
         // TODO: Prompt for custom tag input
-        Err("Custom tag input not yet implemented".into())
+        Err(eyre!("Custom tag input not yet implemented"))
     } else if selection.starts_with("Use bookmark: ") {
         Ok(selection.replace("Use bookmark: ", ""))
     } else {
-        Err(format!("Unexpected selection: {}", selection).into())
+        Err(eyre!("Unexpected selection: {}", selection))
     }
 }

@@ -1,4 +1,5 @@
 use clap::Parser;
+use eyre::{eyre, Result, WrapErr};
 use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -82,15 +83,15 @@ fn resolve_compare_args(
     args: &CompareArgs,
     workdir: &Path,
     defaults: &ComparisonDefaults,
-) -> Result<ResolvedCompareArgs, Box<dyn std::error::Error>> {
-    let artifacts = BuildArtifacts::find(workdir)?;
+) -> Result<ResolvedCompareArgs> {
+    let artifacts = BuildArtifacts::find(workdir).wrap_err("Failed to find build artifacts")?;
 
     let from_file_str = match &args.from_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
             let app_paths = artifacts.get_app_paths();
             if app_paths.is_empty() {
-                return Err("No build artifacts found.".into());
+                return Err(eyre!("No build artifacts found."));
             }
             let app_path_options: Vec<String> = artifacts
                 .apps
@@ -104,7 +105,8 @@ fn resolve_compare_args(
                 "Select application",
                 app_path_options,
                 default_app_display,
-            )?;
+            )
+            .wrap_err("Failed to select application path")?;
             // Extract the actual app path from the formatted string
             let selected_app_path = selected_app_path_str
                 .split("  (Tags:")
@@ -112,7 +114,9 @@ fn resolve_compare_args(
                 .unwrap()
                 .to_string();
 
-            let tags = artifacts.get_tags_for_app(&selected_app_path).unwrap();
+            let tags = artifacts
+                .get_tags_for_app(&selected_app_path)
+                .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app_path))?;
             let default_tag = defaults.from_file.as_deref().and_then(|d| {
                 if d.contains(&selected_app_path) {
                     parse_artifact_path(d).map(|(tag, _)| tag)
@@ -120,23 +124,27 @@ fn resolve_compare_args(
                     None
                 }
             });
-            let selected_tag = selector::select_tag("Select BASELINE tag", tags, default_tag)?;
+            let selected_tag = selector::select_tag("Select BASELINE tag", tags, default_tag)
+                .wrap_err("Failed to select baseline tag")?;
             selector::build_path(&selected_tag, &selected_app_path)
         }
     };
 
     let (from_tag, from_app_path) = parse_artifact_path(&from_file_str)
-        .ok_or_else(|| format!("Invalid from_file path format: {}. Expected format: out/branch-builds/<tag>/<app_path>", from_file_str))?;
+        .ok_or_else(|| eyre!("Invalid from_file path format: {}. Expected format: out/branch-builds/<tag>/<app_path>", from_file_str))?;
 
     let to_file_str = match &args.to_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
-            let tags = artifacts.get_tags_for_app(&from_app_path).unwrap();
+            let tags = artifacts
+                .get_tags_for_app(&from_app_path)
+                .ok_or_else(|| eyre!("Failed to get tags for app: {}", from_app_path))?;
             let other_tags: Vec<&String> = tags.iter().filter(|t| t != &&from_tag).collect();
             if other_tags.is_empty() {
-                return Err(
-                    format!("No other tags found for application: {}", from_app_path).into(),
-                );
+                return Err(eyre!(
+                    "No other tags found for application: {}",
+                    from_app_path
+                ));
             }
 
             let default_tag = defaults.to_file.as_deref().and_then(|d| {
@@ -147,7 +155,8 @@ fn resolve_compare_args(
                 }
             });
             let selected_tag =
-                selector::select_string("Select COMPARISON tag", &other_tags, default_tag)?;
+                selector::select_string("Select COMPARISON tag", &other_tags, default_tag)
+                    .wrap_err("Failed to select comparison tag")?;
             selector::build_path(&selected_tag, &from_app_path)
         }
     };
@@ -167,14 +176,14 @@ fn run_diff(
     to_path: &Path,
     workdir: &Path,
     extra_args: &[String],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     if !from_path.exists() {
         error!("From file not found: {}", from_path.display());
-        return Err(format!("From file not found: {}", from_path.display()).into());
+        return Err(eyre!("From file not found: {}", from_path.display()));
     }
     if !to_path.exists() {
         error!("To file not found: {}", to_path.display());
-        return Err(format!("To file not found: {}", to_path.display()).into());
+        return Err(eyre!("To file not found: {}", to_path.display()));
     }
 
     info!(
@@ -200,11 +209,12 @@ fn run_diff(
     let status = command
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()?;
+        .status()
+        .wrap_err("Failed to execute diff command")?;
 
     if !status.success() {
         error!("Diff command failed with status: {}", status);
-        return Err(format!("Diff command failed with status: {}", status).into());
+        return Err(eyre!("Diff command failed with status: {}", status));
     }
     Ok(())
 }
@@ -215,16 +225,18 @@ fn run_diff(
 pub fn handle_compare(
     args: &CompareArgs,
     workdir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut defaults = defaults::load_defaults()?;
-    let resolved_args = resolve_compare_args(args, workdir, &defaults)?;
+) -> Result<()> {
+    let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
+    let resolved_args =
+        resolve_compare_args(args, workdir, &defaults).wrap_err("Failed to resolve compare arguments")?;
 
     run_diff(
         &resolved_args.from_path,
         &resolved_args.to_path,
         workdir,
         &args.extra_diff_args,
-    )?;
+    )
+    .wrap_err("Failed to run diff")?;
 
     // Save the successful comparison paths as new defaults
     defaults.from_file = Some(normalize_path_str(
@@ -235,7 +247,7 @@ pub fn handle_compare(
         &resolved_args.to_path.to_string_lossy(),
         workdir,
     ));
-    defaults::save_defaults(&defaults)?;
+    defaults::save_defaults(&defaults).wrap_err("Failed to save defaults")?;
 
     Ok(())
 }

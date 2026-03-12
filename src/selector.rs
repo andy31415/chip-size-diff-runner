@@ -1,3 +1,4 @@
+use eyre::{eyre, Result, WrapErr};
 use goblin::elf::Elf;
 use log::debug;
 use skim::prelude::{Skim, SkimItemReader, SkimOptionsBuilder};
@@ -19,7 +20,7 @@ impl BuildArtifacts {
     ///
     /// It scans for files and verifies if they are ELF binaries by parsing their headers.
     /// Files are expected to be within subdirectories structured as `<tag>/<app_path>`.
-    pub fn find(workdir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn find(workdir: &Path) -> Result<Self> {
         let builds_dir = workdir.join("out/branch-builds");
         let mut apps: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
@@ -33,7 +34,7 @@ impl BuildArtifacts {
                 match fs::read(path) {
                     Ok(buffer) => {
                         if Elf::parse(&buffer).is_ok() {
-                            let relative_path = path.strip_prefix(&builds_dir)?;
+                            let relative_path = path.strip_prefix(&builds_dir).wrap_err("Failed to strip prefix from path")?;
                             let components: Vec<&str> = relative_path
                                 .iter()
                                 .map(|s| s.to_str().unwrap_or(""))
@@ -88,9 +89,9 @@ fn fuzzy_select(
     prompt: &str,
     mut items: Vec<String>,
     default_item: Option<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     if items.is_empty() {
-        return Err("No items to select from.".into());
+        return Err(eyre!("No items to select from."));
     }
 
     if let Some(def_item) = default_item
@@ -102,7 +103,8 @@ fn fuzzy_select(
 
     let options = SkimOptionsBuilder::default()
         .prompt(prompt.to_string())
-        .build()?;
+        .build()
+        .wrap_err("Failed to build Skim options")?;
 
     let item_string = items.join(
         "
@@ -116,12 +118,12 @@ fn fuzzy_select(
             debug!("Skim output: {:?}", out);
             if out.is_abort {
                 debug!("Skim selection aborted by user (e.g., ESC)");
-                Err("Selection cancelled by user.".into())
+                Err(eyre!("Selection cancelled by user."))
             } else {
                 let selected_items = out.selected_items;
                 if selected_items.is_empty() {
                     debug!("Skim selection empty, but not an abort");
-                    Err("No selection made.".into())
+                    Err(eyre!("No selection made."))
                 } else {
                     Ok(selected_items[0].output().to_string())
                 }
@@ -129,7 +131,7 @@ fn fuzzy_select(
         }
         Err(e) => {
             debug!("Skim returned error: {} - treated as cancellation", e);
-            Err("Selection process failed or was cancelled.".into())
+            Err(eyre!("Selection process failed or was cancelled."))
         }
     }
 }
@@ -139,7 +141,7 @@ pub fn select_string(
     prompt: &str,
     items: &[&String],
     default_item: Option<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     let owned_items: Vec<String> = items.iter().map(|s| (*s).clone()).collect();
     fuzzy_select(prompt, owned_items, default_item)
 }
@@ -149,7 +151,7 @@ pub fn select_tag(
     prompt: &str,
     tags: &[String],
     default_item: Option<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     let owned_tags: Vec<String> = tags.to_vec();
     fuzzy_select(prompt, owned_tags, default_item)
 }
@@ -159,7 +161,7 @@ pub fn select_app_path(
     prompt: &str,
     app_paths: Vec<String>,
     default_item: Option<String>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String> {
     fuzzy_select(prompt, app_paths, default_item)
 }
 
