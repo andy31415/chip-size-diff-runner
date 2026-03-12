@@ -216,7 +216,7 @@ pub fn handle_compare(
     args: &CompareArgs,
     workdir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let defaults = defaults::load_defaults()?;
+   let mut defaults = defaults::load_defaults()?;
     let resolved_args = resolve_compare_args(args, workdir, &defaults)?;
 
     run_diff(
@@ -227,17 +227,15 @@ pub fn handle_compare(
     )?;
 
     // Save the successful comparison paths as new defaults
-    let new_defaults = ComparisonDefaults {
-        from_file: Some(normalize_path_str(
-            &resolved_args.from_path.to_string_lossy(),
-            workdir,
-        )),
-        to_file: Some(normalize_path_str(
-            &resolved_args.to_path.to_string_lossy(),
-            workdir,
-        )),
-    };
-    defaults::save_defaults(&new_defaults)?;
+    defaults.from_file = Some(normalize_path_str(
+        &resolved_args.from_path.to_string_lossy(),
+        workdir,
+    ));
+    defaults.to_file = Some(normalize_path_str(
+        &resolved_args.to_path.to_string_lossy(),
+        workdir,
+    ));
+    defaults::save_defaults(&defaults)?;
 
     Ok(())
 }

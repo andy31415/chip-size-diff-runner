@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use env_logger::Env;
-use log::{error, info};
+use log::{error, info, debug};
 use std::path::PathBuf;
 
 mod commands;
@@ -25,8 +25,8 @@ struct Cli {
     ///
     /// This directory should contain the source code and build scripts
     /// (e.g., 'scripts/activate.sh').
-    #[arg(short, long, global = true, default_value_t = default_workdir())]
-    workdir: String,
+    #[arg(short, long, global = true)]
+    workdir: Option<String>,
 
     /// Set the logging level.
     ///
@@ -47,7 +47,7 @@ enum Commands {
 /// Determines the default working directory for the application.
 ///
 /// Defaults to "~/devel/connectedhomeip".
-fn default_workdir() -> String {
+fn hardcoded_default_workdir() -> String {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("devel/connectedhomeip")
@@ -61,22 +61,37 @@ fn default_workdir() -> String {
 /// and dispatches to the appropriate subcommand handler.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-
     env_logger::Builder::from_env(Env::default().default_filter_or(&cli.log_level)).init();
 
-    let workdir = PathBuf::from(&cli.workdir);
+    let mut defaults = defaults::load_defaults()?;
+
+    let workdir_str = cli
+        .workdir
+        .clone()
+        .or_else(|| defaults.workdir.clone())
+        .unwrap_or_else(hardcoded_default_workdir);
+
+    let workdir = PathBuf::from(&workdir_str);
+
     if !workdir.join("scripts/activate.sh").exists() {
         error!(
             "Invalid workdir: {}. 'scripts/activate.sh' not found.",
-            cli.workdir
+            workdir.display()
         );
         return Err(format!(
             "Invalid workdir: {}. 'scripts/activate.sh' not found.",
-            cli.workdir
+            workdir.display()
         )
         .into());
     }
     info!("Using working directory: {}", workdir.display());
+
+    // Save the used workdir back to defaults
+    if defaults.workdir.as_deref() != Some(workdir_str.as_str()) {
+        debug!("Saving new default workdir: {}", workdir_str);
+        defaults.workdir = Some(workdir_str);
+        defaults::save_defaults(&defaults)?;
+    }
 
     match &cli.command {
         Commands::Build(args) => {

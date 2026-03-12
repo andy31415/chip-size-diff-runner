@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ComparisonDefaults {
+    pub workdir: Option<String>,
     pub from_file: Option<String>,
     pub to_file: Option<String>,
 }

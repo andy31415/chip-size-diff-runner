@@ -66,6 +66,10 @@ This document outlines the requirements for a Rust application designed to autom
     *   Maintain current defaults if new flags are not used.
 *   **Rerun Last Comparison:**
     *   Add an option to `compare` (e.g., `--rerun`) to quickly re-execute the last comparison using the stored defaults without any interactive prompts.
+* Auto-tag detection:
+    *   If jj is dirty, consider using a fixed tag (like WIP) or associating the jj short name. Or ask the use to select (and remember default choice for 
+        fast re-runs)
+    *   If more than one tag exists in @-, ask the user to select
 
 ### Medium Priority
 
@@ -77,8 +81,3 @@ This document outlines the requirements for a Rust application designed to autom
 
 *   **Configuration File:**
     *   Allow configuration of default `workdir`, podman instance, diff script path, etc., via a config file (e.g., TOML).
-*   **Shell Autocomplete:**
-    *   Generate shell completion scripts (Bash, Zsh, Fish, Nushell).
-    *   Provide dynamic completions for tags and application names in `compare` mode.
-*   **Web UI:** Eventually, a simple web interface to trigger builds and view comparison results.
-*   **Database:** Store build metadata and comparison results in a simple database (e.g., SQLite) for history and analysis.
