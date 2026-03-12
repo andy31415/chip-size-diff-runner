@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
+use dialoguer::{Select, theme::ColorfulTheme};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str;
+use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -43,10 +46,10 @@ struct BuildArgs {
 #[derive(Parser, Debug)]
 struct CompareArgs {
     /// Baseline build file path
-    from_file: String,
+    from_file: Option<String>,
 
     /// Comparison build file path
-    to_file: String,
+    to_file: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -159,10 +162,62 @@ fn execute_build(
     Ok(())
 }
 
-fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let from_path = workdir.join(&args.from_file);
-    let to_path = workdir.join(&args.to_file);
+fn find_build_artifacts(workdir: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let builds_dir = workdir.join("out/branch-builds");
+    let mut artifacts = Vec::new();
 
+    if !builds_dir.exists() {
+        return Ok(artifacts);
+    }
+
+    for entry in WalkDir::new(builds_dir).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            if let Some(filename) = entry.path().file_name().and_then(|n| n.to_str()) {
+                // Basic filter for potential ELF files (no extension or common binary ones)
+                if !filename.contains('.') || filename.ends_with(".elf") || filename.ends_with(".bin") {
+                    let relative_path = entry.path().strip_prefix(workdir)?.to_string_lossy().to_string();
+                    artifacts.push(relative_path);
+                }
+            }
+        }
+    }
+
+    // Parse and sort artifacts
+    // Group by app_path, then sort by tag
+    let mut grouped: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for artifact in artifacts {
+        let parts: Vec<&str> = artifact.split('/').collect();
+        if parts.len() > 3 {
+            let tag = parts[2].to_string();
+            let app_path = parts[3..].join("/");
+            grouped.entry(app_path).or_default().push((tag, artifact));
+        }
+    }
+
+    let mut sorted_artifacts = Vec::new();
+    for (_, mut builds) in grouped {
+        builds.sort_by(|a, b| a.0.cmp(&b.0)); // Sort by tag
+        for (_, full_path) in builds {
+            sorted_artifacts.push(full_path);
+        }
+    }
+
+    Ok(sorted_artifacts)
+}
+
+fn select_file(prompt: &str, artifacts: &[String]) -> Result<String, Box<dyn std::error::Error>> {
+    if artifacts.is_empty() {
+        return Err("No build artifacts found to select from.".into());
+    }
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .items(artifacts)
+        .default(0)
+        .interact()?;
+    Ok(artifacts[selection].clone())
+}
+
+fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if !from_path.exists() {
         return Err(format!("From file not found: {}", from_path.display()).into());
     }
@@ -192,6 +247,28 @@ fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std:
     if !status.success() {
         return Err(format!("Diff command failed with status: {}", status).into());
     }
-
     Ok(())
+}
+
+fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let from_file = match &args.from_file {
+        Some(f) => f.clone(),
+        None => {
+            let artifacts = find_build_artifacts(workdir)?;
+            select_file("Select BASELINE file (from)", &artifacts)?
+        }
+    };
+
+    let to_file = match &args.to_file {
+        Some(f) => f.clone(),
+        None => {
+            let artifacts = find_build_artifacts(workdir)?;
+            select_file("Select COMPARISON file (to)", &artifacts)?
+        }
+    };
+
+    let from_path = workdir.join(&from_file);
+    let to_path = workdir.join(&to_file);
+
+    run_diff(&from_path, &to_path, workdir)
 }
