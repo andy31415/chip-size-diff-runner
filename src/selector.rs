@@ -89,16 +89,31 @@ impl BuildArtifacts {
         Ok(BuildArtifacts { apps })
     }
 
-    /// Returns a vector of unique application paths found.
-    pub fn get_app_paths(&self) -> Vec<&String> {
-        self.apps.keys().collect()
+    /// Returns aligned display strings for all apps: path left-padded to a consistent width,
+    /// followed by the available tags. Use `parse_app_from_display` to recover the raw path.
+    pub fn get_app_display_items(&self) -> Vec<String> {
+        let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(80);
+        self.apps
+            .iter()
+            .map(|(app_path, entries)| {
+                let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
+                format!("{:<width$} (Tags: {})", app_path, tag_names.join(", "))
+            })
+            .collect()
     }
 
-    /// Returns the list of tag names for the given app, sorted newest-first.
-    pub fn get_tags_for_app(&self, app_path: &str) -> Option<Vec<String>> {
-        self.apps
-            .get(app_path)
-            .map(|entries| entries.iter().map(|(tag, _)| tag.clone()).collect())
+    /// Returns the display string for a specific app path, used to set skim defaults.
+    ///
+    /// Uses the same column width as `get_app_display_items` so the string matches exactly.
+    pub fn app_path_to_display_item(&self, app_path: &str) -> Option<String> {
+        let entries = self.apps.get(app_path)?;
+        let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(50);
+        let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
+        Some(format!(
+            "{:<width$}  (Tags: {})",
+            app_path,
+            tag_names.join(", ")
+        ))
     }
 
     /// Returns display strings for the given app, sorted newest-first, with the tag column
@@ -142,15 +157,25 @@ fn tag_column_width(entries: &[(String, SystemTime)]) -> usize {
 /// The tag is left-padded to `width` characters so timestamps line up across all entries.
 fn format_tag_display(tag: &str, mtime: SystemTime, width: usize) -> String {
     let dt: DateTime<Local> = mtime.into();
-    format!("{:<width$}  ({})", tag, dt.format("%Y-%m-%d %H:%M"))
+    format!("{:<width$}  ({})", tag, dt.format("%Y-%m-%d %H:%M:%S"))
 }
 
 /// Strips the date suffix from a skim display string to recover the raw tag name.
 ///
-/// Handles both padded (`"tag   (YYYY-MM-DD HH:MM)"`) and unpadded formats.
+/// Handles both padded (`"tag   (YYYY-MM-DD HH:MM:SS)"`) and unpadded formats.
 pub fn parse_tag_from_display(display: &str) -> String {
     display
         .split("  (")
+        .next()
+        .unwrap_or(display)
+        .trim()
+        .to_string()
+}
+
+/// Strips the tags suffix from an app display string to recover the raw app path.
+pub fn parse_app_from_display(display: &str) -> String {
+    display
+        .split("  (Tags:")
         .next()
         .unwrap_or(display)
         .trim()

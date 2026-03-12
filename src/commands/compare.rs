@@ -67,11 +67,8 @@ fn get_default_app_display(
     artifacts: &BuildArtifacts,
 ) -> Option<String> {
     defaults.from_file.as_ref().and_then(|d_from_file| {
-        parse_artifact_path(d_from_file).and_then(|(_tag, app_path)| {
-            artifacts
-                .get_tags_for_app(&app_path)
-                .map(|tags| format!("{}  (Tags: {})", app_path, tags.join(", ")))
-        })
+        parse_artifact_path(d_from_file)
+            .and_then(|(_tag, app_path)| artifacts.app_path_to_display_item(&app_path))
     })
 }
 
@@ -89,33 +86,20 @@ fn resolve_compare_args(
     let from_file_str = match &args.from_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
-            let app_paths = artifacts.get_app_paths();
-            if app_paths.is_empty() {
+            let app_display_items = artifacts.get_app_display_items();
+            if app_display_items.is_empty() {
                 return Err(eyre!("No build artifacts found."));
             }
-            let app_path_options: Vec<String> = artifacts
-                .apps
-                .iter()
-                .map(|(app_path, entries)| {
-                    let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
-                    format!("{}  (Tags: {})", app_path, tag_names.join(", "))
-                })
-                .collect();
 
             let default_app_display = get_default_app_display(defaults, &artifacts);
 
             let selected_app_path_str = selector::select_app_path(
                 "Select application",
-                app_path_options,
+                app_display_items,
                 default_app_display,
             )
             .wrap_err("Failed to select application path")?;
-            // Extract the actual app path from the formatted string
-            let selected_app_path = selected_app_path_str
-                .split("  (Tags:")
-                .next()
-                .unwrap()
-                .to_string();
+            let selected_app_path = selector::parse_app_from_display(&selected_app_path_str);
 
             let tag_display_items = artifacts
                 .get_tag_display_items_for_app(&selected_app_path)
