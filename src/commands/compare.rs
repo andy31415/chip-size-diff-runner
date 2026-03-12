@@ -1,7 +1,7 @@
 use clap::Parser;
+use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use log::{debug, error, info};
 
 use crate::selector::{self, BuildArtifacts};
 
@@ -32,7 +32,10 @@ fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
     }
 }
 
-fn resolve_compare_args(args: &CompareArgs, workdir: &Path) -> Result<ResolvedCompareArgs, Box<dyn std::error::Error>> {
+fn resolve_compare_args(
+    args: &CompareArgs,
+    workdir: &Path,
+) -> Result<ResolvedCompareArgs, Box<dyn std::error::Error>> {
     let artifacts = BuildArtifacts::find(workdir)?;
 
     let from_file = match &args.from_file {
@@ -42,14 +45,17 @@ fn resolve_compare_args(args: &CompareArgs, workdir: &Path) -> Result<ResolvedCo
             if app_paths.is_empty() {
                 return Err("No build artifacts found.".into());
             }
-            let app_path_options: Vec<String> = artifacts.apps.iter().map(|(app_path, tags)| {
-                format!("{}  (Tags: {})", app_path, tags.join(", "))
-            }).collect();
-            let selection_index = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-                .with_prompt("Select application")
-                .items(&app_path_options)
-                .default(0)
-                .interact()?;
+            let app_path_options: Vec<String> = artifacts
+                .apps
+                .iter()
+                .map(|(app_path, tags)| format!("{}  (Tags: {})", app_path, tags.join(", ")))
+                .collect();
+            let selection_index =
+                dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                    .with_prompt("Select application")
+                    .items(&app_path_options)
+                    .default(0)
+                    .interact()?;
             let selected_app_path = artifacts.get_app_paths()[selection_index].clone();
             let tags = artifacts.get_tags_for_app(&selected_app_path).unwrap();
             let selected_tag = selector::select_tag("Select BASELINE tag", tags)?;
@@ -66,9 +72,11 @@ fn resolve_compare_args(args: &CompareArgs, workdir: &Path) -> Result<ResolvedCo
             let tags = artifacts.get_tags_for_app(&from_app_path).unwrap();
             let other_tags: Vec<&String> = tags.iter().filter(|t| t != &&from_tag).collect();
             if other_tags.is_empty() {
-                return Err(format!("No other tags found for application: {}", from_app_path).into());
+                return Err(
+                    format!("No other tags found for application: {}", from_app_path).into(),
+                );
             }
-             let selected_tag = selector::select_string("Select COMPARISON tag", &other_tags)?;
+            let selected_tag = selector::select_string("Select COMPARISON tag", &other_tags)?;
             selector::build_path(&selected_tag, &from_app_path)
         }
     };
@@ -94,7 +102,11 @@ fn run_diff(
         return Err(format!("To file not found: {}", to_path.display()).into());
     }
 
-    info!("Comparing {} and {}", from_path.display(), to_path.display());
+    info!(
+        "Comparing {} and {}",
+        from_path.display(),
+        to_path.display()
+    );
 
     let mut command = Command::new("uv");
     command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
@@ -110,7 +122,10 @@ fn run_diff(
 
     debug!("Running command: {:?}", command);
     command.current_dir(workdir);
-    let status = command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status()?;
+    let status = command
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
 
     if !status.success() {
         error!("Diff command failed with status: {}", status);
@@ -119,7 +134,15 @@ fn run_diff(
     Ok(())
 }
 
-pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn handle_compare(
+    args: &CompareArgs,
+    workdir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let resolved_args = resolve_compare_args(args, workdir)?;
-    run_diff(&resolved_args.from_path, &resolved_args.to_path, workdir, &args.extra_diff_args)
+    run_diff(
+        &resolved_args.from_path,
+        &resolved_args.to_path,
+        workdir,
+        &args.extra_diff_args,
+    )
 }

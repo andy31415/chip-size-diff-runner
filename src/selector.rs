@@ -20,16 +20,24 @@ impl BuildArtifacts {
         for entry in WalkDir::new(&builds_dir).into_iter().filter_map(|e| e.ok()) {
             if entry.file_type().is_file()
                 && let Some(filename) = entry.path().file_name().and_then(|n| n.to_str())
-                    && (!filename.contains('.') || filename.ends_with(".elf") || filename.ends_with(".bin")) {
-                        let relative_path = entry.path().strip_prefix(&builds_dir)?;
-                        let components: Vec<&str> = relative_path.iter().map(|s| s.to_str().unwrap_or("")).collect();
+                && (!filename.contains('.')
+                    || filename.ends_with(".elf")
+                    || filename.ends_with(".bin"))
+            {
+                let relative_path = entry.path().strip_prefix(&builds_dir)?;
+                let components: Vec<&str> = relative_path
+                    .iter()
+                    .map(|s| s.to_str().unwrap_or(""))
+                    .collect();
 
-                        if components.len() > 1 {
-                            let tag = components[0].to_string();
-                            let app_path = PathBuf::from_iter(&components[1..]).to_string_lossy().to_string();
-                            apps.entry(app_path).or_default().push(tag);
-                        }
-                    }
+                if components.len() > 1 {
+                    let tag = components[0].to_string();
+                    let app_path = PathBuf::from_iter(&components[1..])
+                        .to_string_lossy()
+                        .to_string();
+                    apps.entry(app_path).or_default().push(tag);
+                }
+            }
         }
 
         // Sort tags for each app
@@ -50,7 +58,10 @@ impl BuildArtifacts {
     }
 }
 
-pub fn select_string(prompt: &str, items: &[&String]) -> Result<String, Box<dyn std::error::Error>> {
+pub fn select_string(
+    prompt: &str,
+    items: &[&String],
+) -> Result<String, Box<dyn std::error::Error>> {
     if items.is_empty() {
         return Err("No items to select from.".into());
     }
@@ -63,7 +74,7 @@ pub fn select_string(prompt: &str, items: &[&String]) -> Result<String, Box<dyn 
 }
 
 pub fn select_tag(prompt: &str, tags: &[String]) -> Result<String, Box<dyn std::error::Error>> {
-     if tags.is_empty() {
+    if tags.is_empty() {
         return Err("No tags to select from.".into());
     }
     let selection = Select::with_theme(&ColorfulTheme::default())

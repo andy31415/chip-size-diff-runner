@@ -1,8 +1,8 @@
 use clap::Parser;
+use log::{debug, error, info};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::str;
-use log::{debug, error, info};
 
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
@@ -39,9 +39,8 @@ fn get_jj_tag(workdir: &Path) -> Result<Option<String>, Box<dyn std::error::Erro
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let tag = match &args.tag {
         Some(t) => t.clone(),
-        None => get_jj_tag(workdir)?.ok_or(
-            "Error: No --tag provided and no jj tag found at @- in this repository",
-        )?,
+        None => get_jj_tag(workdir)?
+            .ok_or("Error: No --tag provided and no jj tag found at @- in this repository")?,
     };
 
     info!("Building application: {}", args.application);
@@ -65,8 +64,7 @@ fn execute_build(
     let output_dir_str = output_dir.to_string_lossy();
     let build_command = format!(
         "source ./scripts/activate.sh >/dev/null && ./scripts/build/build_examples.py --log-level info --target '{}' build --copy-artifacts-to {}",
-        application,
-        output_dir_str
+        application, output_dir_str
     );
 
     let mut command;
@@ -90,7 +88,10 @@ fn execute_build(
 
     debug!("Executing build command: {:?}", command);
     command.current_dir(workdir);
-    let status = command.stdout(Stdio::inherit()).stderr(Stdio::inherit()).status()?;
+    let status = command
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
 
     if !status.success() {
         error!("Build command failed with status: {}", status);

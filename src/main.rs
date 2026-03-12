@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use log::{error, info};
+use std::path::PathBuf;
 
 mod commands;
 mod selector;
@@ -41,7 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let workdir = PathBuf::from(&cli.workdir);
     if !workdir.join("scripts/activate.sh").exists() {
-        error!("Invalid workdir: {}. 'scripts/activate.sh' not found.", cli.workdir);
+        error!(
+            "Invalid workdir: {}. 'scripts/activate.sh' not found.",
+            cli.workdir
+        );
         return Err(format!(
             "Invalid workdir: {}. 'scripts/activate.sh' not found.",
             cli.workdir
