@@ -107,10 +107,10 @@ impl BuildArtifacts {
     /// Uses the same column width as `get_app_display_items` so the string matches exactly.
     pub fn app_path_to_display_item(&self, app_path: &str) -> Option<String> {
         let entries = self.apps.get(app_path)?;
-        let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(50);
+        let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(80);
         let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
         Some(format!(
-            "{:<width$}  (Tags: {})",
+            "{:<width$} (Tags: {})",
             app_path,
             tag_names.join(", ")
         ))
@@ -175,7 +175,7 @@ pub fn parse_tag_from_display(display: &str) -> String {
 /// Strips the tags suffix from an app display string to recover the raw app path.
 pub fn parse_app_from_display(display: &str) -> String {
     display
-        .split("  (Tags:")
+        .split("(Tags:")
         .next()
         .unwrap_or(display)
         .trim()
