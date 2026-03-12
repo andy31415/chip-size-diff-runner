@@ -10,18 +10,95 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use walkdir::WalkDir;
 
-/// Represents the collection of build artifacts found in the working directory.
+// ── SelectItem trait ─────────────────────────────────────────────────────────
+
+/// Items that can be presented in a skim fuzzy-find prompt.
+///
+/// Implement this trait to make a type selectable. `select()` returns the
+/// original typed value — no string parsing required after selection.
+pub trait SelectItem: Send + Sync + 'static {
+    fn display_text(&self) -> String;
+}
+
+/// Plain strings are usable directly (e.g. for build target selection).
+impl SelectItem for String {
+    fn display_text(&self) -> String {
+        self.clone()
+    }
+}
+
+// ── Concrete item types ───────────────────────────────────────────────────────
+
+/// A build artifact application path with its associated tags.
+pub struct AppItem {
+    pub path: String,
+    tag_names: Vec<String>,
+    column_width: usize,
+}
+
+impl SelectItem for AppItem {
+    fn display_text(&self) -> String {
+        format!(
+            "{:<width$} (Tags: {})",
+            self.path,
+            self.tag_names.join(", "),
+            width = self.column_width
+        )
+    }
+}
+
+/// A build tag with its ELF modification time.
+pub struct TagItem {
+    pub name: String,
+    pub modified: SystemTime,
+    column_width: usize,
+}
+
+impl SelectItem for TagItem {
+    fn display_text(&self) -> String {
+        let dt: DateTime<Local> = self.modified.into();
+        format!(
+            "{:<width$}  ({})",
+            self.name,
+            dt.format("%Y-%m-%d %H:%M:%S"),
+            width = self.column_width
+        )
+    }
+}
+
+/// Creates a `Vec<TagItem>` from raw `(name, mtime)` pairs, computing the column
+/// width over the provided set so timestamps align correctly across all items.
+///
+/// Accepts any slice, so callers can pre-filter (e.g. exclude the baseline tag)
+/// and still get correct alignment for the remaining items.
+pub fn create_tag_items(entries: &[(String, SystemTime)]) -> Vec<TagItem> {
+    let width = entries
+        .iter()
+        .map(|(t, _)| t.len())
+        .max()
+        .unwrap_or(0)
+        .min(30);
+    entries
+        .iter()
+        .map(|(name, modified)| TagItem {
+            name: name.clone(),
+            modified: *modified,
+            column_width: width,
+        })
+        .collect()
+}
+
+// ── BuildArtifacts ────────────────────────────────────────────────────────────
+
+/// The collection of ELF build artifacts found under `out/branch-builds/`.
 pub struct BuildArtifacts {
-    /// A map where keys are application paths (relative to the tag directory)
-    /// and values are `(tag, modified_time)` pairs sorted newest-first.
+    /// app_path → Vec<(tag_name, modified_time)>, sorted newest-first.
     pub apps: BTreeMap<String, Vec<(String, SystemTime)>>,
 }
 
 impl BuildArtifacts {
-    /// Finds and catalogs all build artifacts within the workdir's "out/branch-builds" directory.
-    ///
-    /// Scans for ELF binaries, records their modification time, and sorts each app's tags
-    /// by modification time descending (newest first).
+    /// Walks `out/branch-builds/` in the workdir, identifies ELF files, records
+    /// their modification time, and sorts each app's tags newest-first.
     pub fn find(workdir: &Path) -> Result<Self> {
         let builds_dir = workdir.join("out/branch-builds");
         let mut apps: BTreeMap<String, Vec<(String, SystemTime)>> = BTreeMap::new();
@@ -53,10 +130,8 @@ impl BuildArtifacts {
                                     .and_then(|m| m.modified())
                                     .unwrap_or(SystemTime::UNIX_EPOCH);
                                 let entries = apps.entry(app_path).or_default();
-                                // Replace existing entry for this tag or push new one
                                 if let Some(existing) = entries.iter_mut().find(|(t, _)| t == &tag)
                                 {
-                                    // Keep the newest mtime for this tag
                                     if mtime > existing.1 {
                                         existing.1 = mtime;
                                     }
@@ -81,7 +156,6 @@ impl BuildArtifacts {
             }
         }
 
-        // Sort each app's tags newest-first
         for entries in apps.values_mut() {
             entries.sort_by(|a, b| b.1.cmp(&a.1));
         }
@@ -89,114 +163,63 @@ impl BuildArtifacts {
         Ok(BuildArtifacts { apps })
     }
 
-    /// Returns aligned display strings for all apps: path left-padded to a consistent width,
-    /// followed by the available tags. Use `parse_app_from_display` to recover the raw path.
-    pub fn get_app_display_items(&self) -> Vec<String> {
+    /// Returns all apps as `AppItem`s with the path column aligned (capped at 80 chars).
+    pub fn app_items(&self) -> Vec<AppItem> {
         let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(80);
         self.apps
             .iter()
-            .map(|(app_path, entries)| {
-                let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
-                format!("{:<width$} (Tags: {})", app_path, tag_names.join(", "))
+            .map(|(path, entries)| AppItem {
+                path: path.clone(),
+                tag_names: entries.iter().map(|(t, _)| t.clone()).collect(),
+                column_width: width,
             })
             .collect()
     }
 
-    /// Returns the display string for a specific app path, used to set skim defaults.
-    ///
-    /// Uses the same column width as `get_app_display_items` so the string matches exactly.
-    pub fn app_path_to_display_item(&self, app_path: &str) -> Option<String> {
-        let entries = self.apps.get(app_path)?;
-        let width = self.apps.keys().map(|p| p.len()).max().unwrap_or(0).min(80);
-        let tag_names: Vec<&str> = entries.iter().map(|(t, _)| t.as_str()).collect();
-        Some(format!(
-            "{:<width$} (Tags: {})",
-            app_path,
-            tag_names.join(", ")
-        ))
-    }
-
-    /// Returns display strings for the given app, sorted newest-first, with the tag column
-    /// left-padded to a consistent width so the timestamps align vertically.
-    pub fn get_tag_display_items_for_app(&self, app_path: &str) -> Option<Vec<String>> {
-        let entries = self.apps.get(app_path)?;
-        let width = tag_column_width(entries);
-        Some(
-            entries
-                .iter()
-                .map(|(tag, mtime)| format_tag_display(tag, *mtime, width))
-                .collect(),
-        )
-    }
-
-    /// Returns the display string for a specific `(app_path, tag)` pair, used to set skim defaults.
-    ///
-    /// Uses the same column width as `get_tag_display_items_for_app` so the string matches exactly.
-    pub fn tag_to_display_item(&self, app_path: &str, tag: &str) -> Option<String> {
-        let entries = self.apps.get(app_path)?;
-        let width = tag_column_width(entries);
-        entries
-            .iter()
-            .find(|(t, _)| t == tag)
-            .map(|(t, mtime)| format_tag_display(t, *mtime, width))
+    /// Returns tag items for the given app, sorted newest-first, with aligned column.
+    pub fn tag_items_for_app(&self, app_path: &str) -> Option<Vec<TagItem>> {
+        self.apps.get(app_path).map(|e| create_tag_items(e))
     }
 }
 
-/// Computes the tag column width for a set of entries: the longest tag name, capped at 30.
-fn tag_column_width(entries: &[(String, SystemTime)]) -> usize {
-    entries
-        .iter()
-        .map(|(tag, _)| tag.len())
-        .max()
-        .unwrap_or(0)
-        .min(30)
-}
+// ── Generic selector ──────────────────────────────────────────────────────────
 
-/// Formats a tag name and its ELF modification time into an aligned display string for skim.
+/// Presents an interactive skim fuzzy-find prompt and returns the selected item.
 ///
-/// The tag is left-padded to `width` characters so timestamps line up across all entries.
-fn format_tag_display(tag: &str, mtime: SystemTime, width: usize) -> String {
-    let dt: DateTime<Local> = mtime.into();
-    format!("{:<width$}  ({})", tag, dt.format("%Y-%m-%d %H:%M:%S"))
-}
-
-/// Strips the date suffix from a skim display string to recover the raw tag name.
-///
-/// Handles both padded (`"tag   (YYYY-MM-DD HH:MM:SS)"`) and unpadded formats.
-pub fn parse_tag_from_display(display: &str) -> String {
-    display
-        .split("  (")
-        .next()
-        .unwrap_or(display)
-        .trim()
-        .to_string()
-}
-
-/// Strips the tags suffix from an app display string to recover the raw app path.
-pub fn parse_app_from_display(display: &str) -> String {
-    display
-        .split("(Tags:")
-        .next()
-        .unwrap_or(display)
-        .trim()
-        .to_string()
-}
-
-/// Presents an interactive fuzzy finder to the user to choose from a list of strings.
-fn fuzzy_select(
+/// If `default_index` is `Some(i)`, item `i` is placed at the top of the list
+/// so pressing Enter immediately accepts it. The returned value is the original
+/// `T` — no string parsing is performed.
+pub fn select<T: SelectItem>(
     prompt: &str,
-    mut items: Vec<String>,
-    default_item: Option<String>,
-) -> Result<String> {
+    items: Vec<T>,
+    default_index: Option<usize>,
+) -> Result<T> {
     if items.is_empty() {
         return Err(eyre!("No items to select from."));
     }
 
-    if let Some(def_item) = default_item
-        && let Some(index) = items.iter().position(|item| item == &def_item)
-    {
-        let item = items.remove(index);
-        items.insert(0, item);
+    // Build display order: default item first, rest unchanged.
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    if let Some(di) = default_index.filter(|&i| i < items.len()) {
+        order.retain(|&i| i != di);
+        order.insert(0, di);
+    }
+
+    let display_texts: Vec<String> = order.iter().map(|&i| items[i].display_text()).collect();
+    let selected_text = fuzzy_select(prompt, display_texts)?;
+
+    // Recover the original item by matching its display text exactly.
+    // Display texts are deterministic and unique for our data (paths, tag+timestamp pairs).
+    items
+        .into_iter()
+        .find(|item| item.display_text() == selected_text)
+        .ok_or_else(|| eyre!("Selected item not found in original list"))
+}
+
+/// Core skim invocation: takes display strings, returns the one the user selected.
+fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
+    if items.is_empty() {
+        return Err(eyre!("No items to select from."));
     }
 
     let options = SkimOptionsBuilder::default()
@@ -215,13 +238,11 @@ fn fuzzy_select(
                 debug!("Skim selection aborted by user (e.g., ESC)");
                 Err(eyre!("Selection cancelled by user."))
             } else {
-                let selected_items = out.selected_items;
-                if selected_items.is_empty() {
-                    debug!("Skim selection empty, but not an abort");
-                    Err(eyre!("No selection made."))
-                } else {
-                    Ok(selected_items[0].output().to_string())
-                }
+                out.selected_items
+                    .into_iter()
+                    .next()
+                    .map(|i| i.output().to_string())
+                    .ok_or_else(|| eyre!("No selection made."))
             }
         }
         Err(e) => {
@@ -231,33 +252,14 @@ fn fuzzy_select(
     }
 }
 
-/// Presents an interactive fuzzy finder for choosing a tag from display items.
-///
-/// Items should be formatted display strings (e.g. from `get_tag_display_items_for_app`).
-/// Use `parse_tag_from_display` on the result to recover the raw tag name.
-pub fn select_tag(
-    prompt: &str,
-    items: Vec<String>,
-    default_item: Option<String>,
-) -> Result<String> {
-    fuzzy_select(prompt, items, default_item)
-}
+// ── Misc helpers ──────────────────────────────────────────────────────────────
 
-/// Presents an interactive fuzzy finder for choosing an application path.
-pub fn select_app_path(
-    prompt: &str,
-    app_paths: Vec<String>,
-    default_item: Option<String>,
-) -> Result<String> {
-    fuzzy_select(prompt, app_paths, default_item)
-}
-
-/// Constructs the relative path to an artifact given a tag and application path.
-///
-/// Format: "out/branch-builds/<tag>/<app_path>"
+/// Constructs the relative path to an artifact: `"out/branch-builds/<tag>/<app_path>"`.
 pub fn build_path(tag: &str, app_path: &str) -> String {
     format!("out/branch-builds/{}/{}", tag, app_path)
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -276,11 +278,20 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_tag_from_display() {
-        assert_eq!(
-            parse_tag_from_display("my-branch  (2024-01-15 14:23)"),
-            "my-branch"
-        );
-        assert_eq!(parse_tag_from_display("plain-tag"), "plain-tag");
+    fn test_tag_item_display_alignment() {
+        let entries = vec![
+            ("short".to_string(), SystemTime::UNIX_EPOCH),
+            ("a-longer-tag-name".to_string(), SystemTime::UNIX_EPOCH),
+        ];
+        let items = create_tag_items(&entries);
+        // Both items should have the same display width up to the "  (" separator
+        let w0 = items[0].display_text().find("  (").unwrap();
+        let w1 = items[1].display_text().find("  (").unwrap();
+        assert_eq!(w0, w1);
+    }
+
+    #[test]
+    fn test_select_item_for_string() {
+        assert_eq!("hello".to_string().display_text(), "hello");
     }
 }

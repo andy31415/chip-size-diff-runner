@@ -115,8 +115,13 @@ fn resolve_application(
 
     let candidates = build_candidate_list(&defaults.recent_applications, discovered);
 
-    let default_item = defaults.recent_applications.first().cloned();
-    selector::select_app_path("Select build target", candidates, default_item)
+    // If there are recents, the most recent is already at index 0 (from build_candidate_list).
+    let default_index = if defaults.recent_applications.is_empty() {
+        None
+    } else {
+        Some(0)
+    };
+    selector::select("Select build target", candidates, default_index)
         .wrap_err("Failed to select build target")
 }
 

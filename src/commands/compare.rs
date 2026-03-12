@@ -62,20 +62,7 @@ fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
     }
 }
 
-fn get_default_app_display(
-    defaults: &ComparisonDefaults,
-    artifacts: &BuildArtifacts,
-) -> Option<String> {
-    defaults.from_file.as_ref().and_then(|d_from_file| {
-        parse_artifact_path(d_from_file)
-            .and_then(|(_tag, app_path)| artifacts.app_path_to_display_item(&app_path))
-    })
-}
-
 /// Resolves the `from_file` and `to_file` arguments, prompting the user interactively if necessary.
-///
-/// If file paths are not provided in `args`, this function discovers available build artifacts
-/// and uses `dialoguer` to guide the user through selecting the application and tags to compare.
 fn resolve_compare_args(
     args: &CompareArgs,
     workdir: &Path,
@@ -86,74 +73,85 @@ fn resolve_compare_args(
     let from_file_str = match &args.from_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
-            let app_display_items = artifacts.get_app_display_items();
-            if app_display_items.is_empty() {
+            // ── Select application ────────────────────────────────────────────
+            let app_items = artifacts.app_items();
+            if app_items.is_empty() {
                 return Err(eyre!("No build artifacts found."));
             }
 
-            let default_app_display = get_default_app_display(defaults, &artifacts);
+            let default_app_index = defaults
+                .from_file
+                .as_deref()
+                .and_then(parse_artifact_path)
+                .and_then(|(_, app_path)| app_items.iter().position(|i| i.path == app_path));
 
-            let selected_app_path_str = selector::select_app_path(
-                "Select application",
-                app_display_items,
-                default_app_display,
-            )
-            .wrap_err("Failed to select application path")?;
-            let selected_app_path = selector::parse_app_from_display(&selected_app_path_str);
+            let selected_app = selector::select("Select application", app_items, default_app_index)
+                .wrap_err("Failed to select application")?;
 
-            let tag_display_items = artifacts
-                .get_tag_display_items_for_app(&selected_app_path)
-                .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app_path))?;
-            let default_display = defaults.from_file.as_deref().and_then(|d| {
-                if d.contains(&selected_app_path) {
-                    parse_artifact_path(d).and_then(|(tag, _)| {
-                        artifacts.tag_to_display_item(&selected_app_path, &tag)
-                    })
-                } else {
-                    None
-                }
-            });
-            let selected_display =
-                selector::select_tag("Select BASELINE tag", tag_display_items, default_display)
+            // ── Select baseline tag ───────────────────────────────────────────
+            let tag_items = artifacts
+                .tag_items_for_app(&selected_app.path)
+                .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app.path))?;
+
+            let default_tag_index = defaults
+                .from_file
+                .as_deref()
+                .and_then(parse_artifact_path)
+                .filter(|(_, app)| app == &selected_app.path)
+                .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
+
+            let selected_tag =
+                selector::select("Select BASELINE tag", tag_items, default_tag_index)
                     .wrap_err("Failed to select baseline tag")?;
-            let selected_tag = selector::parse_tag_from_display(&selected_display);
-            selector::build_path(&selected_tag, &selected_app_path)
+
+            selector::build_path(&selected_tag.name, &selected_app.path)
         }
     };
 
-    let (from_tag, from_app_path) = parse_artifact_path(&from_file_str)
-        .ok_or_else(|| eyre!("Invalid from_file path format: {}. Expected format: out/branch-builds/<tag>/<app_path>", from_file_str))?;
+    let (from_tag, from_app_path) = parse_artifact_path(&from_file_str).ok_or_else(|| {
+        eyre!(
+            "Invalid from_file path format: {}. Expected: out/branch-builds/<tag>/<app_path>",
+            from_file_str
+        )
+    })?;
 
     let to_file_str = match &args.to_file {
         Some(f) => normalize_path_str(f, workdir),
         None => {
-            let tag_display_items = artifacts
-                .get_tag_display_items_for_app(&from_app_path)
+            // ── Select comparison tag ─────────────────────────────────────────
+            // Build tag items excluding the already-chosen baseline tag, so the
+            // user can't accidentally compare a build with itself. Column width
+            // is recomputed over the filtered set for correct alignment.
+            let all_entries = artifacts
+                .apps
+                .get(&from_app_path)
                 .ok_or_else(|| eyre!("Failed to get tags for app: {}", from_app_path))?;
-            let other_displays: Vec<String> = tag_display_items
-                .into_iter()
-                .filter(|d| selector::parse_tag_from_display(d) != from_tag)
+            let other_entries: Vec<_> = all_entries
+                .iter()
+                .filter(|(name, _)| name != &from_tag)
+                .cloned()
                 .collect();
-            if other_displays.is_empty() {
+            if other_entries.is_empty() {
                 return Err(eyre!(
                     "No other tags found for application: {}",
                     from_app_path
                 ));
             }
 
-            let default_display = defaults.to_file.as_deref().and_then(|d| {
-                if d.contains(&from_app_path) {
-                    parse_artifact_path(d)
-                        .and_then(|(tag, _)| artifacts.tag_to_display_item(&from_app_path, &tag))
-                } else {
-                    None
-                }
-            });
-            let selected_display =
-                selector::select_tag("Select COMPARISON tag", other_displays, default_display)
+            let tag_items = selector::create_tag_items(&other_entries);
+
+            let default_tag_index = defaults
+                .to_file
+                .as_deref()
+                .and_then(parse_artifact_path)
+                .filter(|(_, app)| app == &from_app_path)
+                .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
+
+            let selected_tag =
+                selector::select("Select COMPARISON tag", tag_items, default_tag_index)
                     .wrap_err("Failed to select comparison tag")?;
-            let selected_tag = selector::parse_tag_from_display(&selected_display);
-            selector::build_path(&selected_tag, &from_app_path)
+
+            selector::build_path(&selected_tag.name, &from_app_path)
         }
     };
 
@@ -165,8 +163,7 @@ fn resolve_compare_args(
 
 /// Executes the size difference script to compare the two artifact files.
 ///
-/// Uses `uv run` to execute the Python script `scripts/tools/binary_elf_size_diff.py`,
-/// passing the file paths and any extra arguments.
+/// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
 fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[String]) -> Result<()> {
     if !from_path.exists() {
         error!("From file not found: {}", from_path.display());
@@ -211,8 +208,6 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[Stri
 }
 
 /// Handles the logic for the `compare` subcommand.
-///
-/// Resolves the arguments (potentially interactively) and then runs the diff process.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
     let mut defaults = defaults::load_defaults().wrap_err("Failed to load defaults")?;
     let resolved_args = resolve_compare_args(args, workdir, &defaults)
@@ -226,7 +221,6 @@ pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
     )
     .wrap_err("Failed to run diff")?;
 
-    // Save the successful comparison paths as new defaults
     defaults.from_file = Some(normalize_path_str(
         &resolved_args.from_path.to_string_lossy(),
         workdir,
@@ -259,12 +253,12 @@ mod tests {
     #[test]
     fn test_parse_artifact_path_invalid() {
         assert_eq!(parse_artifact_path(""), None);
-        assert_eq!(parse_artifact_path("out/branch-builds/tag"), None); // Too short
-        assert_eq!(parse_artifact_path("foo/bar/tag/app"), None); // Wrong prefix
+        assert_eq!(parse_artifact_path("out/branch-builds/tag"), None);
+        assert_eq!(parse_artifact_path("foo/bar/tag/app"), None);
         assert_eq!(
             parse_artifact_path("out/branch-builds/t1/t2/t3"),
             Some(("t1".to_string(), "t2/t3".to_string()))
-        ); // Deeper path
+        );
     }
 
     #[test]

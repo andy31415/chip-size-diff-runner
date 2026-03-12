@@ -103,7 +103,7 @@ pub fn generate_tag(workdir: &Path, explicit_tag: Option<String>) -> Result<Stri
     }
 
     let prompt = "Select tag for build output";
-    let selection_result = selector::select_app_path(prompt, options, None);
+    let selection_result = selector::select(prompt, options, None);
     debug!("tag_generator selection_result: {:?}", selection_result);
 
     let selection = selection_result.wrap_err("Failed to select tag")?;
