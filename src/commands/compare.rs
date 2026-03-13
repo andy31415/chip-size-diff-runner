@@ -2,7 +2,7 @@ use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use which::which;
 
 use crate::defaults::ComparisonDefaults;
@@ -162,6 +162,58 @@ fn resolve_compare_args(
     })
 }
 
+/// Represents a chain of commands to be piped together.
+struct CommandChain {
+    commands: Vec<Command>,
+}
+
+impl CommandChain {
+    /// Creates a new CommandChain with the initial command.
+    fn new(initial_command: Command) -> Self {
+        CommandChain {
+            commands: vec![initial_command],
+        }
+    }
+
+    /// Adds a command to the end of the pipe chain.
+    fn pipe(mut self, command: Command) -> Self {
+        self.commands.push(command);
+        self
+    }
+
+    /// Executes the command chain, piping stdout of each command to stdin of the next.
+    /// The last command's stdout/stderr are inherited.
+    fn execute(&mut self) -> Result<()> {
+        if self.commands.is_empty() {
+            return Ok(());
+        }
+
+        let mut previous_child: Option<Child> = None;
+
+        for i in 0..self.commands.len() {
+            let is_last = i == self.commands.len() - 1;
+            let command = &mut self.commands[i];
+
+            if let Some(mut child) = previous_child.take() {
+                command.stdin(Stdio::from(child.stdout.take().unwrap()));
+            }
+
+            if is_last {
+                command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+                let status = command.status().wrap_err("Failed to execute command")?;
+                if !status.success() {
+                    return Err(eyre!("Command failed with status: {}", status));
+                }
+            } else {
+                command.stdout(Stdio::piped()).stderr(Stdio::inherit());
+                previous_child = Some(command.spawn().wrap_err("Failed to start command")?);
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Executes the size difference script to compare the two artifact files.
 ///
 /// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
@@ -181,61 +233,38 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[Stri
         to_path.display()
     );
 
-    let mut command = Command::new("uv");
-    command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
-    command.current_dir(workdir);
+    let mut diff_command = Command::new("uv");
+    diff_command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
+    diff_command.current_dir(workdir);
 
-    let mut pipe: Option<Command> = None;
+    let mut command_chain = CommandChain::new(diff_command);
 
     if extra_args.is_empty() {
         match which("csvlens") {
             Ok(_) => {
-                command.args(["--output", "csv"]);
-                pipe = Some({
-                    let mut cmd = Command::new("csvlens");
-                    cmd.current_dir(workdir);
-                    cmd
-                });
+                command_chain.commands[0].args(["--output", "csv"]);
+                let mut csvlens_command = Command::new("csvlens");
+
+                // Avoid `Size1` and `Size2` columns as they are useless most of the time (take up
+                // vertical space). Function, Type and Size seems to be what I use most.
+                csvlens_command
+                    .current_dir(workdir)
+                    .args(["--columns", "Function|Size$|Type"]);
+                command_chain = command_chain.pipe(csvlens_command);
             }
             Err(_) => {
-                command.args(["--output", "table"]);
+                command_chain.commands[0].args(["--output", "table"]);
             }
         }
     } else {
-        command.args(extra_args);
+        command_chain.commands[0].args(extra_args);
     }
 
-    command.arg(to_path);
-    command.arg(from_path);
+    command_chain.commands[0].arg(to_path);
+    command_chain.commands[0].arg(from_path);
 
-    debug!("Running command: {:?}", command);
-    let status = match pipe {
-        Some(mut pipe_command) => {
-            // start child and then do the real pipe
-            let child = command
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .wrap_err("Failed to start diff program")?;
-
-            pipe_command
-                .stdin(Stdio::from(child.stdout.unwrap()))
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .status()
-        }
-        None => command
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status(),
-    }
-    .wrap_err("Failed to execute diff command")?;
-
-    if !status.success() {
-        error!("Diff command failed with status: {}", status);
-        return Err(eyre!("Diff command failed with status: {}", status));
-    }
-    Ok(())
+    debug!("Running command chain: {:?}", command_chain.commands);
+    command_chain.execute()
 }
 
 /// Handles the logic for the `compare` subcommand.
