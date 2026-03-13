@@ -58,7 +58,7 @@ impl SelectItem for AppItem {
         format!(
             "{:<width$} {}",
             self.path,
-            format!("(Tags: {})", self.tag_names.join(", ")).dimmed(),
+            format!("(Tags: {})", self.tag_names.join(", ")).green(),
             width = self.column_width
         )
     }
@@ -87,7 +87,7 @@ impl SelectItem for TagItem {
         format!(
             "{:<width$}  {}",
             self.name,
-            format!("({})", dt.format("%Y-%m-%d %H:%M:%S")).dimmed(),
+            format!("({})", dt.format("%Y-%m-%d %H:%M:%S")).green(),
             width = self.column_width
         )
     }
@@ -347,9 +347,9 @@ mod tests {
             ("a-longer-tag-name".to_string(), SystemTime::UNIX_EPOCH),
         ];
         let items = create_tag_items(&entries);
-        // skim_text aligns the tag column; the ANSI dim code appears at the same offset
-        let w0 = items[0].skim_text().find("  \x1b[2m(").unwrap();
-        let w1 = items[1].skim_text().find("  \x1b[2m(").unwrap();
+        // skim_text aligns the tag column; the ANSI color code appears at the same offset
+        let w0 = items[0].skim_text().find("  \x1b[").unwrap();
+        let w1 = items[1].skim_text().find("  \x1b[").unwrap();
         assert_eq!(w0, w1);
     }
 
