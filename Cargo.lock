@@ -210,6 +210,7 @@ dependencies = [
  "eyre",
  "goblin",
  "log",
+ "owo-colors",
  "serde",
  "skim",
  "toml",

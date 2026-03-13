@@ -2,7 +2,8 @@ use chrono::{DateTime, Local};
 use eyre::{Result, WrapErr, eyre};
 use goblin::elf::Elf;
 use log::debug;
-use skim::prelude::{Skim, SkimItemReader, SkimOptionsBuilder};
+use owo_colors::OwoColorize;
+use skim::prelude::{Skim, SkimItemReader, SkimItemReaderOption, SkimOptionsBuilder};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Cursor;
@@ -14,10 +15,17 @@ use walkdir::WalkDir;
 
 /// Items that can be presented in a skim fuzzy-find prompt.
 ///
-/// Implement this trait to make a type selectable. `select()` returns the
-/// original typed value — no string parsing required after selection.
+/// `display_text()` is the plain text used for fuzzy matching and item
+/// recovery after selection. Override `skim_text()` to add ANSI decoration
+/// (colours, dimming) that skim will render — the decoration is stripped
+/// before recovery so `display_text()` stays clean.
 pub trait SelectItem: Send + Sync + 'static {
     fn display_text(&self) -> String;
+
+    /// ANSI-decorated text shown in the skim UI. Defaults to `display_text()`.
+    fn skim_text(&self) -> String {
+        self.display_text()
+    }
 }
 
 /// Plain strings are usable directly (e.g. for build target selection).
@@ -45,6 +53,15 @@ impl SelectItem for AppItem {
             width = self.column_width
         )
     }
+
+    fn skim_text(&self) -> String {
+        format!(
+            "{:<width$} {}",
+            self.path,
+            format!("(Tags: {})", self.tag_names.join(", ")).dimmed(),
+            width = self.column_width
+        )
+    }
 }
 
 /// A build tag with its ELF modification time.
@@ -61,6 +78,16 @@ impl SelectItem for TagItem {
             "{:<width$}  ({})",
             self.name,
             dt.format("%Y-%m-%d %H:%M:%S"),
+            width = self.column_width
+        )
+    }
+
+    fn skim_text(&self) -> String {
+        let dt: DateTime<Local> = self.modified.into();
+        format!(
+            "{:<width$}  {}",
+            self.name,
+            format!("({})", dt.format("%Y-%m-%d %H:%M:%S")).dimmed(),
             width = self.column_width
         )
     }
@@ -205,18 +232,20 @@ pub fn select<T: SelectItem>(
         order.insert(0, di);
     }
 
-    let display_texts: Vec<String> = order.iter().map(|&i| items[i].display_text()).collect();
-    let selected_text = fuzzy_select(prompt, display_texts)?;
+    // Pass skim_text() for display (may include ANSI). After selection, strip
+    // ANSI from skim's output and match against plain display_text() for recovery.
+    let skim_texts: Vec<String> = order.iter().map(|&i| items[i].skim_text()).collect();
+    let selected_raw = fuzzy_select(prompt, skim_texts)?;
+    let selected_plain = strip_ansi_codes(&selected_raw);
 
-    // Recover the original item by matching its display text exactly.
-    // Display texts are deterministic and unique for our data (paths, tag+timestamp pairs).
     items
         .into_iter()
-        .find(|item| item.display_text() == selected_text)
+        .find(|item| item.display_text() == selected_plain)
         .ok_or_else(|| eyre!("Selected item not found in original list"))
 }
 
-/// Core skim invocation: takes display strings, returns the one the user selected.
+/// Core skim invocation: takes ANSI-decorated display strings, returns the raw
+/// output of the item the user selected (may include ANSI codes).
 fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
     if items.is_empty() {
         return Err(eyre!("No items to select from."));
@@ -224,11 +253,14 @@ fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
 
     let options = SkimOptionsBuilder::default()
         .prompt(format!("{}: ", prompt))
+        .ansi(true)
         .build()
         .wrap_err("Failed to build Skim options")?;
 
     let item_string = items.join("\n");
-    let item_reader = SkimItemReader::default();
+    // Must enable ANSI on the reader too — SkimItemReader::default() has ANSI
+    // disabled, causing escape codes to be mangled before output() is called.
+    let item_reader = SkimItemReader::new(SkimItemReaderOption::default().ansi(true));
     let skim_items = item_reader.of_bufread(Cursor::new(item_string));
 
     match Skim::run_with(options, Some(skim_items)) {
@@ -250,6 +282,24 @@ fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
             Err(eyre!("Selection process failed or was cancelled."))
         }
     }
+}
+
+/// Strips CSI escape sequences (`\x1b[...m`) from a string, returning plain text.
+fn strip_ansi_codes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for c in chars.by_ref() {
+                if c == 'm' {
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 // ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -291,6 +341,19 @@ mod tests {
     }
 
     #[test]
+    fn test_tag_item_skim_text_alignment() {
+        let entries = vec![
+            ("short".to_string(), SystemTime::UNIX_EPOCH),
+            ("a-longer-tag-name".to_string(), SystemTime::UNIX_EPOCH),
+        ];
+        let items = create_tag_items(&entries);
+        // skim_text aligns the tag column; the ANSI dim code appears at the same offset
+        let w0 = items[0].skim_text().find("  \x1b[2m(").unwrap();
+        let w1 = items[1].skim_text().find("  \x1b[2m(").unwrap();
+        assert_eq!(w0, w1);
+    }
+
+    #[test]
     fn test_select_item_for_string() {
         assert_eq!("hello".to_string().display_text(), "hello");
     }
@@ -315,11 +378,29 @@ mod tests {
         );
         let artifacts = BuildArtifacts { apps };
         let items = artifacts.app_items();
-        // All items should have the same display length up to " (Tags:"
+        // display_text aligns the path column; "(Tags:" appears at the same offset
         let positions: Vec<usize> = items
             .iter()
             .map(|i| i.display_text().find(" (Tags:").unwrap())
             .collect();
         assert!(positions.iter().all(|&p| p == positions[0]));
+    }
+
+    #[test]
+    fn test_strip_ansi_codes() {
+        assert_eq!(strip_ansi_codes("hello"), "hello");
+        assert_eq!(strip_ansi_codes("\x1b[2mhello\x1b[0m"), "hello");
+        assert_eq!(
+            strip_ansi_codes("tag  \x1b[2m(2024-01-15)\x1b[0m"),
+            "tag  (2024-01-15)"
+        );
+    }
+
+    #[test]
+    fn test_display_text_matches_stripped_skim_text() {
+        let entries = vec![("my-tag".to_string(), SystemTime::UNIX_EPOCH)];
+        let items = create_tag_items(&entries);
+        let item = &items[0];
+        assert_eq!(item.display_text(), strip_ansi_codes(&item.skim_text()));
     }
 }
