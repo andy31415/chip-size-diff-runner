@@ -3,6 +3,7 @@ use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use which::which;
 
 use crate::defaults::ComparisonDefaults;
 use crate::selector::{self, BuildArtifacts};
@@ -182,9 +183,24 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[Stri
 
     let mut command = Command::new("uv");
     command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
+    command.current_dir(workdir);
+
+    let mut pipe: Option<Command> = None;
 
     if extra_args.is_empty() {
-        command.args(["--output", "table"]);
+        match which("csvlens") {
+            Ok(_) => {
+                command.args(["--output", "csv"]);
+                pipe = Some({
+                    let mut cmd = Command::new("csvlens");
+                    cmd.current_dir(workdir);
+                    cmd
+                });
+            }
+            Err(_) => {
+                command.args(["--output", "table"]);
+            }
+        }
     } else {
         command.args(extra_args);
     }
@@ -193,12 +209,27 @@ fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[Stri
     command.arg(from_path);
 
     debug!("Running command: {:?}", command);
-    command.current_dir(workdir);
-    let status = command
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .wrap_err("Failed to execute diff command")?;
+    let status = match pipe {
+        Some(mut pipe_command) => {
+            // start child and then do the real pipe
+            let child = command
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .wrap_err("Failed to start diff program")?;
+
+            pipe_command
+                .stdin(Stdio::from(child.stdout.unwrap()))
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .status()
+        }
+        None => command
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status(),
+    }
+    .wrap_err("Failed to execute diff command")?;
 
     if !status.success() {
         error!("Diff command failed with status: {}", status);
