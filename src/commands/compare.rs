@@ -1,12 +1,10 @@
+use crate::domain::artifacts::{BuildArtifacts, build_path, create_tag_items};
+use crate::persistence::SessionState;
+use crate::runner::diff_engine;
+use crate::ui::fuzzy;
 use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
-use log::{debug, error, info};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use which::which;
-
-use crate::defaults::ComparisonDefaults;
-use crate::selector::{self, BuildArtifacts};
 
 /// Arguments for the `compare` subcommand.
 #[derive(Parser, Debug)]
@@ -67,7 +65,7 @@ fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
 fn resolve_compare_args(
     args: &CompareArgs,
     workdir: &Path,
-    defaults: &ComparisonDefaults,
+    session: &SessionState,
 ) -> Result<ResolvedCompareArgs> {
     let artifacts = BuildArtifacts::find(workdir).wrap_err("Failed to find build artifacts")?;
 
@@ -80,13 +78,13 @@ fn resolve_compare_args(
                 return Err(eyre!("No build artifacts found."));
             }
 
-            let default_app_index = defaults
+            let default_app_index = session
                 .from_file
                 .as_deref()
                 .and_then(parse_artifact_path)
                 .and_then(|(_, app_path)| app_items.iter().position(|i| i.path == app_path));
 
-            let selected_app = selector::select("Select application", app_items, default_app_index)
+            let selected_app = fuzzy::select("Select application", app_items, default_app_index)
                 .wrap_err("Failed to select application")?;
 
             // ── Select baseline tag ───────────────────────────────────────────
@@ -94,7 +92,7 @@ fn resolve_compare_args(
                 .tag_items_for_app(&selected_app.path)
                 .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app.path))?;
 
-            let default_tag_index = defaults
+            let default_tag_index = session
                 .from_file
                 .as_deref()
                 .and_then(parse_artifact_path)
@@ -102,10 +100,10 @@ fn resolve_compare_args(
                 .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
 
             let selected_tag =
-                selector::select("Select BASELINE tag", tag_items, default_tag_index)
+                fuzzy::select("Select BASELINE tag", tag_items, default_tag_index)
                     .wrap_err("Failed to select baseline tag")?;
 
-            selector::build_path(&selected_tag.name, &selected_app.path)
+            build_path(&selected_tag.name, &selected_app.path)
         }
     };
 
@@ -139,9 +137,9 @@ fn resolve_compare_args(
                 ));
             }
 
-            let tag_items = selector::create_tag_items(&other_entries);
+            let tag_items = create_tag_items(&other_entries);
 
-            let default_tag_index = defaults
+            let default_tag_index = session
                 .to_file
                 .as_deref()
                 .and_then(parse_artifact_path)
@@ -149,10 +147,10 @@ fn resolve_compare_args(
                 .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
 
             let selected_tag =
-                selector::select("Select COMPARISON tag", tag_items, default_tag_index)
+                fuzzy::select("Select COMPARISON tag", tag_items, default_tag_index)
                     .wrap_err("Failed to select comparison tag")?;
 
-            selector::build_path(&selected_tag.name, &from_app_path)
+            build_path(&selected_tag.name, &from_app_path)
         }
     };
 
@@ -162,118 +160,13 @@ fn resolve_compare_args(
     })
 }
 
-/// Represents a chain of commands to be piped together.
-struct CommandChain {
-    commands: Vec<Command>,
-}
-
-impl CommandChain {
-    /// Creates a new CommandChain with the initial command.
-    fn new(initial_command: Command) -> Self {
-        CommandChain {
-            commands: vec![initial_command],
-        }
-    }
-
-    /// Adds a command to the end of the pipe chain.
-    fn pipe(mut self, command: Command) -> Self {
-        self.commands.push(command);
-        self
-    }
-
-    /// Executes the command chain, piping stdout of each command to stdin of the next.
-    /// The last command's stdout/stderr are inherited.
-    fn execute(&mut self) -> Result<()> {
-        if self.commands.is_empty() {
-            return Ok(());
-        }
-
-        let mut previous_child: Option<Child> = None;
-
-        for i in 0..self.commands.len() {
-            let is_last = i == self.commands.len() - 1;
-            let command = &mut self.commands[i];
-
-            if let Some(mut child) = previous_child.take() {
-                command.stdin(Stdio::from(child.stdout.take().unwrap()));
-            }
-
-            if is_last {
-                command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-                let status = command.status().wrap_err("Failed to execute command")?;
-                if !status.success() {
-                    return Err(eyre!("Command failed with status: {}", status));
-                }
-            } else {
-                command.stdout(Stdio::piped()).stderr(Stdio::inherit());
-                previous_child = Some(command.spawn().wrap_err("Failed to start command")?);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// Executes the size difference script to compare the two artifact files.
-///
-/// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
-fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[String]) -> Result<()> {
-    if !from_path.exists() {
-        error!("From file not found: {}", from_path.display());
-        return Err(eyre!("From file not found: {}", from_path.display()));
-    }
-    if !to_path.exists() {
-        error!("To file not found: {}", to_path.display());
-        return Err(eyre!("To file not found: {}", to_path.display()));
-    }
-
-    info!(
-        "Comparing {} and {}",
-        from_path.display(),
-        to_path.display()
-    );
-
-    let mut diff_command = Command::new("uv");
-    diff_command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
-    diff_command.current_dir(workdir);
-
-    let mut command_chain = CommandChain::new(diff_command);
-
-    if extra_args.is_empty() {
-        match which("csvlens") {
-            Ok(_) => {
-                command_chain.commands[0].args(["--output", "csv"]);
-                let mut csvlens_command = Command::new("csvlens");
-
-                // Avoid `Size1` and `Size2` columns as they are useless most of the time (take up
-                // vertical space). Function, Type and Size seems to be what I use most.
-                csvlens_command
-                    .current_dir(workdir)
-                    .args(["--columns", "Function|Size$|Type"]);
-                command_chain = command_chain.pipe(csvlens_command);
-            }
-            Err(_) => {
-                command_chain.commands[0].args(["--output", "table"]);
-            }
-        }
-    } else {
-        command_chain.commands[0].args(extra_args);
-    }
-
-    command_chain.commands[0].arg(to_path);
-    command_chain.commands[0].arg(from_path);
-
-    debug!("Running command chain: {:?}", command_chain.commands);
-    command_chain.execute()
-}
-
 /// Handles the logic for the `compare` subcommand.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
-    let mut defaults = ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
-    let resolved_args = resolve_compare_args(args, workdir, &defaults)
+    let mut session = SessionState::load().wrap_err("Failed to load session state")?;
+    let resolved_args = resolve_compare_args(args, workdir, &session)
         .wrap_err("Failed to resolve compare arguments")?;
 
-    run_diff(
+    diff_engine::run_diff(
         &resolved_args.from_path,
         &resolved_args.to_path,
         workdir,
@@ -281,15 +174,15 @@ pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
     )
     .wrap_err("Failed to run diff")?;
 
-    defaults.from_file = Some(normalize_path_str(
+    session.from_file = Some(normalize_path_str(
         &resolved_args.from_path.to_string_lossy(),
         workdir,
     ));
-    defaults.to_file = Some(normalize_path_str(
+    session.to_file = Some(normalize_path_str(
         &resolved_args.to_path.to_string_lossy(),
         workdir,
     ));
-    defaults.save().wrap_err("Failed to save defaults")?;
+    session.save().wrap_err("Failed to save session state")?;
 
     Ok(())
 }

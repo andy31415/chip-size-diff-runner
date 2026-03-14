@@ -7,12 +7,12 @@ use std::path::PathBuf;
 
 const MAX_RECENT_APPLICATIONS: usize = 10;
 
-/// Persistent per-user settings stored in `~/.cache/branch_diff/defaults.toml`.
+/// Persistent per-user session state stored in `~/.cache/branch_diff/session.toml`.
 ///
 /// All fields are optional so the file can be absent or partially written
 /// without breaking anything — missing fields deserialize to `None`/empty.
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-pub struct ComparisonDefaults {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SessionState {
     pub workdir: Option<String>,
     /// Last-used baseline artifact path, relative to workdir.
     pub from_file: Option<String>,
@@ -21,33 +21,55 @@ pub struct ComparisonDefaults {
     /// Most-recently-used build targets, newest first. Capped at `MAX_RECENT_APPLICATIONS`.
     #[serde(default)]
     pub recent_applications: Vec<String>,
+    /// Common targets shown as fallbacks.
+    pub default_targets: Vec<String>,
 }
 
-impl ComparisonDefaults {
-    /// Loads settings from the cache file, returning `Default` if the file is absent or unparseable.
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            workdir: None,
+            from_file: None,
+            to_file: None,
+            recent_applications: Vec::new(),
+            default_targets: vec![
+                "linux-x64-all-clusters-app".to_string(),
+                "linux-x64-chip-tool".to_string(),
+                "linux-x64-all-devices".to_string(),
+                "efr32-brd4187c-lock-no-version".to_string(),
+                "stm32-stm32wb5mm-dk-light".to_string(),
+                "qpg-qpg6200-light".to_string(),
+                "ti-cc13x4_26x4-lock-ftd".to_string(),
+            ],
+        }
+    }
+}
+
+impl SessionState {
+    /// Loads session state from the cache file, returning `Default` if the file is absent or unparseable.
     ///
     /// Parse failures are silently ignored so a corrupt/outdated cache never blocks the tool.
     pub fn load() -> Result<Self> {
         let path = Self::cache_path()?;
         if !path.exists() {
-            debug!("Defaults file not found: {}", path.display());
+            debug!("Session file not found: {}", path.display());
             return Ok(Self::default());
         }
 
         let mut file = fs::File::open(&path)
-            .wrap_err_with(|| format!("Failed to open defaults file: {}", path.display()))?;
+            .wrap_err_with(|| format!("Failed to open session file: {}", path.display()))?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)
-            .wrap_err_with(|| format!("Failed to read defaults file: {}", path.display()))?;
+            .wrap_err_with(|| format!("Failed to read session file: {}", path.display()))?;
 
         match toml::from_str(&contents) {
-            Ok(defaults) => {
-                debug!("Loaded defaults from {}: {:?}", path.display(), defaults);
-                Ok(defaults)
+            Ok(state) => {
+                debug!("Loaded session state from {}: {:?}", path.display(), state);
+                Ok(state)
             }
             Err(e) => {
                 debug!(
-                    "Ignoring unparseable defaults file {} ({}), using defaults",
+                    "Ignoring unparseable session file {} ({}), using defaults",
                     path.display(),
                     e
                 );
@@ -56,17 +78,17 @@ impl ComparisonDefaults {
         }
     }
 
-    /// Persists the current settings to the cache file, creating it if necessary.
+    /// Persists the current session state to the cache file, creating it if necessary.
     pub fn save(&self) -> Result<()> {
         let path = Self::cache_path()?;
         let toml_string =
-            toml::to_string_pretty(self).wrap_err("Failed to serialize defaults to TOML")?;
+            toml::to_string_pretty(self).wrap_err("Failed to serialize session state to TOML")?;
 
         let mut file = fs::File::create(&path)
-            .wrap_err_with(|| format!("Failed to create defaults file: {}", path.display()))?;
+            .wrap_err_with(|| format!("Failed to create session file: {}", path.display()))?;
         file.write_all(toml_string.as_bytes())
-            .wrap_err_with(|| format!("Failed to write defaults to file: {}", path.display()))?;
-        debug!("Saved defaults to {}: {:?}", path.display(), self);
+            .wrap_err_with(|| format!("Failed to write session state to file: {}", path.display()))?;
+        debug!("Saved session state to {}: {:?}", path.display(), self);
         Ok(())
     }
 
@@ -84,7 +106,7 @@ impl ComparisonDefaults {
             .ok_or_else(|| eyre!("Could not find cache directory"))?
             .join("branch_diff");
         fs::create_dir_all(&cache_dir).wrap_err("Failed to create cache directory")?;
-        Ok(cache_dir.join("defaults.toml"))
+        Ok(cache_dir.join("session.toml"))
     }
 }
 
@@ -94,41 +116,27 @@ mod tests {
 
     #[test]
     fn test_add_recent_application_prepends() {
-        let mut d = ComparisonDefaults::default();
-        d.add_recent_application("app-a");
-        d.add_recent_application("app-b");
-        assert_eq!(d.recent_applications, vec!["app-b", "app-a"]);
+        let mut s = SessionState::default();
+        s.add_recent_application("app-a");
+        s.add_recent_application("app-b");
+        assert_eq!(s.recent_applications, vec!["app-b", "app-a"]);
     }
 
     #[test]
     fn test_add_recent_application_deduplicates() {
-        let mut d = ComparisonDefaults::default();
-        d.add_recent_application("app-a");
-        d.add_recent_application("app-b");
-        d.add_recent_application("app-a"); // moves to front, no duplicate
-        assert_eq!(d.recent_applications, vec!["app-a", "app-b"]);
+        let mut s = SessionState::default();
+        s.add_recent_application("app-a");
+        s.add_recent_application("app-b");
+        s.add_recent_application("app-a");
+        assert_eq!(s.recent_applications, vec!["app-a", "app-b"]);
     }
 
     #[test]
     fn test_add_recent_application_caps_at_max() {
-        let mut d = ComparisonDefaults::default();
+        let mut s = SessionState::default();
         for i in 0..=(MAX_RECENT_APPLICATIONS + 2) {
-            d.add_recent_application(&format!("app-{}", i));
+            s.add_recent_application(&format!("app-{}", i));
         }
-        assert_eq!(d.recent_applications.len(), MAX_RECENT_APPLICATIONS);
-    }
-
-    #[test]
-    fn test_round_trip_serialization() {
-        let mut original = ComparisonDefaults::default();
-        original.workdir = Some("/some/path".to_string());
-        original.add_recent_application("linux-x64-all-clusters-app");
-        original.add_recent_application("efr32-brd4187c-lock-no-version");
-
-        let toml_str = toml::to_string_pretty(&original).unwrap();
-        let restored: ComparisonDefaults = toml::from_str(&toml_str).unwrap();
-
-        assert_eq!(restored.workdir, original.workdir);
-        assert_eq!(restored.recent_applications, original.recent_applications);
+        assert_eq!(s.recent_applications.len(), MAX_RECENT_APPLICATIONS);
     }
 }

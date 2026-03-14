@@ -1,25 +1,13 @@
-use crate::defaults;
-use crate::selector;
-use crate::tag_generator;
+use crate::domain::vcs;
+use crate::persistence::SessionState;
+use crate::runner::build_engine;
+use crate::ui::fuzzy;
 use clap::Parser;
-use eyre::{Result, WrapErr, eyre};
-use log::{debug, error, info};
+use eyre::{Result, WrapErr};
+use log::{debug, info};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
-
-/// Starting set of known targets so a fresh install has a useful selection list
-/// before any builds have been run.
-const HARDCODED_TARGETS: &[&str] = &[
-    "linux-x64-all-clusters-app",
-    "linux-x64-chip-tool",
-    "linux-x64-all-devices",
-    "efr32-brd4187c-lock-no-version",
-    "stm32-stm32wb5mm-dk-light",
-    "qpg-qpg6200-light",
-    "ti-cc13x4_26x4-lock-ftd",
-];
 
 /// Arguments for the `build` subcommand.
 #[derive(Parser, Debug)]
@@ -75,8 +63,12 @@ fn discover_targets_from_builds(workdir: &Path) -> Vec<String> {
 }
 
 /// Builds the ordered, deduplicated list of candidate targets:
-/// recents first (preserving order), then discovered, then hardcoded.
-fn build_candidate_list(recent: &[String], discovered: Vec<String>) -> Vec<String> {
+/// recents first (preserving order), then discovered, then default_targets.
+fn build_candidate_list(
+    recent: &[String],
+    discovered: Vec<String>,
+    default_targets: &[String],
+) -> Vec<String> {
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut candidates: Vec<String> = Vec::new();
 
@@ -90,9 +82,9 @@ fn build_candidate_list(recent: &[String], discovered: Vec<String>) -> Vec<Strin
             candidates.push(app);
         }
     }
-    for &app in HARDCODED_TARGETS {
-        if seen.insert(app.to_string()) {
-            candidates.push(app.to_string());
+    for app in default_targets {
+        if seen.insert(app.clone()) {
+            candidates.push(app.clone());
         }
     }
 
@@ -104,7 +96,7 @@ fn build_candidate_list(recent: &[String], discovered: Vec<String>) -> Vec<Strin
 fn resolve_application(
     args: &BuildArgs,
     workdir: &Path,
-    defaults: &defaults::ComparisonDefaults,
+    session: &SessionState,
 ) -> Result<String> {
     if let Some(app) = &args.application {
         return Ok(app.clone());
@@ -113,15 +105,19 @@ fn resolve_application(
     let discovered = discover_targets_from_builds(workdir);
     debug!("Discovered targets from builds dir: {:?}", discovered);
 
-    let candidates = build_candidate_list(&defaults.recent_applications, discovered);
+    let candidates = build_candidate_list(
+        &session.recent_applications,
+        discovered,
+        &session.default_targets,
+    );
 
     // If there are recents, the most recent is already at index 0 (from build_candidate_list).
-    let default_index = if defaults.recent_applications.is_empty() {
+    let default_index = if session.recent_applications.is_empty() {
         None
     } else {
         Some(0)
     };
-    selector::select("Select build target", candidates, default_index)
+    fuzzy::select("Select build target", candidates, default_index)
         .wrap_err("Failed to select build target")
 }
 
@@ -129,11 +125,11 @@ fn resolve_application(
 ///
 /// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
 pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
-    let mut defaults = defaults::ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
+    let mut session = SessionState::load().wrap_err("Failed to load session state")?;
 
-    let application = resolve_application(args, workdir, &defaults)?;
+    let application = resolve_application(args, workdir, &session)?;
 
-    let tag_result = tag_generator::generate_tag(workdir, args.tag.clone());
+    let tag_result = vcs::generate_tag(workdir, args.tag.clone());
     debug!("handle_build tag_result: {:?}", tag_result);
 
     let tag = tag_result.wrap_err("Failed to generate tag")?;
@@ -152,62 +148,12 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
 
     info!("Output directory: {}", output_dir.display());
 
-    execute_build(&application, &relative_output_dir, &output_dir, workdir)
+    build_engine::execute_build(&application, &relative_output_dir, &output_dir, workdir)
         .wrap_err("Failed to execute build")?;
 
-    defaults.add_recent_application(&application);
-    defaults.save().wrap_err("Failed to save defaults")?;
+    session.add_recent_application(&application);
+    session.save().wrap_err("Failed to save session state")?;
 
-    Ok(())
-}
-
-/// Executes the application build command.
-///
-/// Dispatches to either a local bash execution or a podman container based on the application name prefix.
-fn execute_build(
-    application: &str,
-    relative_output_dir: &str,
-    output_dir: &Path,
-    workdir: &Path,
-) -> Result<()> {
-    let build_command = format!(
-        "source ./scripts/activate.sh >/dev/null && ./scripts/build/build_examples.py --log-level info --target '{}' build --copy-artifacts-to {}",
-        application, relative_output_dir
-    );
-
-    let mut command;
-    if application.starts_with("linux-x64-") {
-        info!("Building on HOST...");
-        command = Command::new("bash");
-        command.arg("-c").arg(build_command);
-    } else {
-        info!("Building via PODMAN...");
-        command = Command::new("podman");
-        command.args([
-            "exec",
-            "-w",
-            "/workspace",
-            "bld_vscode",
-            "/bin/bash",
-            "-c",
-            &build_command,
-        ]);
-    }
-
-    debug!("Executing build command: {:?}", command);
-    command.current_dir(workdir);
-    let status = command
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .wrap_err("Failed to execute build command")?;
-
-    if !status.success() {
-        error!("Build command failed with status: {}", status);
-        return Err(eyre!("Build command failed with status: {}", status));
-    }
-
-    info!("Artifacts in: {}", output_dir.display());
     Ok(())
 }
 
@@ -217,34 +163,30 @@ mod tests {
 
     #[test]
     fn test_candidate_list_ordering() {
-        // Recents come first (preserving their order), then discovered, then hardcoded.
         let recent = vec!["recent-a".to_string(), "recent-b".to_string()];
         let discovered = vec!["discovered-x".to_string()];
-        let result = build_candidate_list(&recent, discovered);
+        let defaults = vec!["default-1".to_string()];
+        let result = build_candidate_list(&recent, discovered, &defaults);
         assert_eq!(result[0], "recent-a");
         assert_eq!(result[1], "recent-b");
         assert_eq!(result[2], "discovered-x");
-        assert!(result.contains(&"linux-x64-all-clusters-app".to_string()));
+        assert_eq!(result[3], "default-1");
     }
 
     #[test]
     fn test_candidate_list_deduplication() {
-        // A target that appears in recents, discovered, and hardcoded must appear exactly once.
-        let recent = vec!["linux-x64-all-clusters-app".to_string()];
-        let discovered = vec!["linux-x64-all-clusters-app".to_string()];
-        let result = build_candidate_list(&recent, discovered);
-        let count = result
-            .iter()
-            .filter(|s| s.as_str() == "linux-x64-all-clusters-app")
-            .count();
-        assert_eq!(count, 1);
-        assert_eq!(result[0], "linux-x64-all-clusters-app");
+        let recent = vec!["app-1".to_string()];
+        let discovered = vec!["app-1".to_string()];
+        let defaults = vec!["app-1".to_string()];
+        let result = build_candidate_list(&recent, discovered, &defaults);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "app-1");
     }
 
     #[test]
-    fn test_candidate_list_empty_recents_falls_back_to_hardcoded() {
-        let result = build_candidate_list(&[], vec![]);
-        assert!(!result.is_empty());
-        assert_eq!(result[0], HARDCODED_TARGETS[0]);
+    fn test_candidate_list_empty_recents_falls_back_to_defaults() {
+        let defaults = vec!["default-1".to_string()];
+        let result = build_candidate_list(&[], vec![], &defaults);
+        assert_eq!(result[0], "default-1");
     }
 }

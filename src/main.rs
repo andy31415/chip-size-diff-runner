@@ -5,12 +5,14 @@ use log::{debug, error, info};
 use std::path::PathBuf;
 
 mod commands;
-mod defaults;
-mod selector;
-mod tag_generator;
+mod domain;
+mod persistence;
+mod runner;
+mod ui;
 
 use commands::build::{self, BuildArgs};
 use commands::compare::{self, CompareArgs};
+use persistence::SessionState;
 
 /// A CLI tool to build and compare application binaries across different tags.
 ///
@@ -69,12 +71,12 @@ fn main() -> Result<()> {
 
 /// Resolves the workdir, validates it, saves it for future runs, then dispatches.
 fn run_app(cli: &Cli) -> Result<()> {
-    let mut defaults = defaults::ComparisonDefaults::load().wrap_err("Failed to load defaults")?;
+    let mut session = SessionState::load().wrap_err("Failed to load session state")?;
 
     let workdir_str = cli
         .workdir
         .clone()
-        .or_else(|| defaults.workdir.clone())
+        .or_else(|| session.workdir.clone())
         .unwrap_or_else(hardcoded_default_workdir);
 
     let workdir = PathBuf::from(&workdir_str);
@@ -87,11 +89,11 @@ fn run_app(cli: &Cli) -> Result<()> {
     }
     info!("Using working directory: {}", workdir.display());
 
-    // Save the used workdir back to defaults
-    if defaults.workdir.as_deref() != Some(workdir_str.as_str()) {
+    // Save the used workdir back to session state
+    if session.workdir.as_deref() != Some(workdir_str.as_str()) {
         debug!("Saving new default workdir: {}", workdir_str);
-        defaults.workdir = Some(workdir_str);
-        defaults.save().wrap_err("Failed to save defaults")?;
+        session.workdir = Some(workdir_str);
+        session.save().wrap_err("Failed to save session state")?;
     }
 
     match &cli.command {

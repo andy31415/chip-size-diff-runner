@@ -1,4 +1,4 @@
-use crate::selector;
+use crate::ui::fuzzy;
 use eyre::{Result, WrapErr, eyre};
 use log::{debug, warn};
 use std::path::Path;
@@ -108,7 +108,7 @@ pub fn generate_tag(workdir: &Path, explicit_tag: Option<String>) -> Result<Stri
         Err(e) => warn!("Failed to get recent bookmarks: {}", e),
     }
 
-    let selection = selector::select("Select tag for build output", options, None)
+    let selection = fuzzy::select("Select tag for build output", options, None)
         .wrap_err("Failed to select tag")?;
     debug!("tag_generator selection: {:?}", selection);
 
@@ -138,7 +138,6 @@ mod tests {
 
     #[test]
     fn test_parse_bookmark_name_no_colon() {
-        // Lines without a colon are unexpected but should not panic.
         assert_eq!(
             parse_bookmark_name("just-a-name"),
             Some("just-a-name".to_string())
