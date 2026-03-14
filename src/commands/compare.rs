@@ -1,6 +1,6 @@
 use crate::domain::artifacts::{BuildArtifacts, build_path, create_tag_items};
 use crate::persistence::SessionState;
-use crate::runner::diff_engine;
+use crate::runner::diff_engine::{self, ViewerTool};
 use crate::ui::fuzzy;
 use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
@@ -21,6 +21,14 @@ pub struct CompareArgs {
     /// If omitted, an interactive selection will be shown based on the application
     /// selected for `from_file`.
     pub to_file: Option<String>,
+
+    /// Viewer tool to pipe CSV output to.
+    ///
+    /// Options: default, vd, visidata, csvlens, custom:<name>
+    ///
+    /// "default" auto-detects: prefers `vd`, then `csvlens`, then plain table output.
+    #[arg(long, default_value = "default")]
+    pub viewer: String,
 
     /// Extra arguments to pass to the underlying diff script.
     ///
@@ -160,6 +168,8 @@ fn resolve_compare_args(
 
 /// Handles the logic for the `compare` subcommand.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
+    let viewer = ViewerTool::from_str(&args.viewer).wrap_err("Invalid --viewer value")?;
+
     let mut session = SessionState::load().wrap_err("Failed to load session state")?;
     let resolved_args = resolve_compare_args(args, workdir, &session)
         .wrap_err("Failed to resolve compare arguments")?;
@@ -169,6 +179,7 @@ pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
         &resolved_args.to_path,
         workdir,
         &args.extra_diff_args,
+        &viewer,
     )
     .wrap_err("Failed to run diff")?;
 
