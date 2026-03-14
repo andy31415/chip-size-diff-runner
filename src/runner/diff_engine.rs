@@ -12,13 +12,16 @@ const CSVLENS_DEFAULT_COLUMNS: &str = "Function|Size$|Type";
 
 /// The viewer tool to pipe CSV output to.
 ///
+/// Implements [`std::str::FromStr`], so it can be parsed with `.parse()` or
+/// `ViewerTool::from_str()`.
+///
 /// # Examples
 ///
 /// ```
 /// use branch_diff::runner::diff_engine::ViewerTool;
-/// assert!(ViewerTool::from_str("csvlens").is_ok());
-/// assert!(ViewerTool::from_str("custom:grep chip").is_ok());
-/// assert!(ViewerTool::from_str("unknown").is_err());
+/// assert!("csvlens".parse::<ViewerTool>().is_ok());
+/// assert!("custom:grep chip".parse::<ViewerTool>().is_ok());
+/// assert!("unknown".parse::<ViewerTool>().is_err());
 /// ```
 #[derive(Debug, PartialEq)]
 pub enum ViewerTool {
@@ -30,13 +33,14 @@ pub enum ViewerTool {
     Custom(Vec<String>),
 }
 
-impl ViewerTool {
+impl std::str::FromStr for ViewerTool {
+    type Err = eyre::Error;
+
     /// Parses a viewer name string into a `ViewerTool`.
     ///
     /// Valid values: `default`, `vd`, `visidata`, `csvlens`, `custom:<cmd>`.
     /// For `custom`, arguments are supported: `custom:grep chip` → `grep` with arg `chip`.
-    #[must_use = "parsing a viewer string has no effect if the result is unused"]
-    pub fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<Self> {
         match s {
             "default" => Ok(Self::Default),
             "vd" | "visidata" => Ok(Self::Visidata),
@@ -58,7 +62,9 @@ impl ViewerTool {
             )),
         }
     }
+}
 
+impl ViewerTool {
     /// Resolve `Default` to a concrete choice based on what is installed.
     fn resolve(&self) -> ResolvedViewer {
         match self {
@@ -183,21 +189,21 @@ fn build_viewer_chain(
 mod tests {
     use super::*;
 
-    // ── from_str parsing ──────────────────────────────────────────────────────
+    // ── FromStr parsing ───────────────────────────────────────────────────────
 
     #[test]
     fn test_parse_known_variants() {
         assert_eq!(
-            ViewerTool::from_str("default").unwrap(),
+            "default".parse::<ViewerTool>().unwrap(),
             ViewerTool::Default
         );
-        assert_eq!(ViewerTool::from_str("vd").unwrap(), ViewerTool::Visidata);
+        assert_eq!("vd".parse::<ViewerTool>().unwrap(), ViewerTool::Visidata);
         assert_eq!(
-            ViewerTool::from_str("visidata").unwrap(),
+            "visidata".parse::<ViewerTool>().unwrap(),
             ViewerTool::Visidata
         );
         assert_eq!(
-            ViewerTool::from_str("csvlens").unwrap(),
+            "csvlens".parse::<ViewerTool>().unwrap(),
             ViewerTool::Csvlens
         );
     }
@@ -205,7 +211,7 @@ mod tests {
     #[test]
     fn test_parse_custom_single_arg() {
         assert_eq!(
-            ViewerTool::from_str("custom:myviewer").unwrap(),
+            "custom:myviewer".parse::<ViewerTool>().unwrap(),
             ViewerTool::Custom(vec!["myviewer".to_string()]),
         );
     }
@@ -214,7 +220,7 @@ mod tests {
     fn test_parse_custom_multi_arg() {
         // Simulates --viewer custom:"grep chip" after shell quote stripping.
         assert_eq!(
-            ViewerTool::from_str("custom:grep chip").unwrap(),
+            "custom:grep chip".parse::<ViewerTool>().unwrap(),
             ViewerTool::Custom(vec!["grep".to_string(), "chip".to_string()]),
         );
     }
@@ -222,7 +228,7 @@ mod tests {
     #[test]
     fn test_parse_custom_extra_whitespace() {
         assert_eq!(
-            ViewerTool::from_str("custom:  grep   -i  foo  ").unwrap(),
+            "custom:  grep   -i  foo  ".parse::<ViewerTool>().unwrap(),
             ViewerTool::Custom(vec![
                 "grep".to_string(),
                 "-i".to_string(),
@@ -233,15 +239,15 @@ mod tests {
 
     #[test]
     fn test_parse_custom_empty_is_error() {
-        assert!(ViewerTool::from_str("custom:").is_err());
-        assert!(ViewerTool::from_str("custom:   ").is_err());
+        assert!("custom:".parse::<ViewerTool>().is_err());
+        assert!("custom:   ".parse::<ViewerTool>().is_err());
     }
 
     #[test]
     fn test_parse_unknown_is_error() {
-        assert!(ViewerTool::from_str("").is_err());
-        assert!(ViewerTool::from_str("foobar").is_err());
-        assert!(ViewerTool::from_str("Custom:foo").is_err()); // case-sensitive
+        assert!("".parse::<ViewerTool>().is_err());
+        assert!("foobar".parse::<ViewerTool>().is_err());
+        assert!("Custom:foo".parse::<ViewerTool>().is_err()); // case-sensitive
     }
 
     // ── resolve (deterministic variants only) ─────────────────────────────────

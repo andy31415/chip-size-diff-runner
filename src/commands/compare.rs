@@ -181,7 +181,7 @@ fn resolve_compare_args(
 ///
 /// Accepts the session loaded by the caller to avoid a double load.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path, mut session: SessionState) -> Result<()> {
-    let viewer = ViewerTool::from_str(&args.viewer).wrap_err("Invalid --viewer value")?;
+    let viewer: ViewerTool = args.viewer.parse().wrap_err("Invalid --viewer value")?;
 
     let resolved_args = resolve_compare_args(args, workdir, &session)
         .wrap_err("Failed to resolve compare arguments")?;
