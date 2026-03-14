@@ -11,8 +11,8 @@ pub enum ViewerTool {
     Default,
     Visidata,
     Csvlens,
-    /// Pipe to an arbitrary program that reads CSV from stdin.
-    Custom(String),
+    /// Pipe to an arbitrary program (with optional args) that reads CSV from stdin.
+    Custom(Vec<String>),
 }
 
 impl ViewerTool {
@@ -22,11 +22,12 @@ impl ViewerTool {
             "vd" | "visidata" => Ok(Self::Visidata),
             "csvlens" => Ok(Self::Csvlens),
             s if s.starts_with("custom:") => {
-                let name = s.trim_start_matches("custom:");
-                if name.is_empty() {
-                    Err(eyre!("custom: viewer requires a program name, e.g. custom:myviewer"))
+                let rest = s.trim_start_matches("custom:");
+                let parts: Vec<String> = rest.split_whitespace().map(str::to_string).collect();
+                if parts.is_empty() {
+                    Err(eyre!("custom: viewer requires a program name, e.g. custom:myviewer or custom:\"grep chip\""))
                 } else {
-                    Ok(Self::Custom(name.to_string()))
+                    Ok(Self::Custom(parts))
                 }
             }
             other => Err(eyre!(
@@ -50,7 +51,7 @@ impl ViewerTool {
             }
             Self::Visidata => ResolvedViewer::Visidata,
             Self::Csvlens => ResolvedViewer::Csvlens,
-            Self::Custom(name) => ResolvedViewer::Custom(name.clone()),
+            Self::Custom(parts) => ResolvedViewer::Custom(parts.clone()),
         }
     }
 }
@@ -59,7 +60,7 @@ enum ResolvedViewer {
     Table,
     Visidata,
     Csvlens,
-    Custom(String),
+    Custom(Vec<String>),
 }
 
 /// Executes the size difference script to compare the two artifact files.
@@ -112,10 +113,10 @@ pub fn run_diff(
                     .args(["--columns", "Function|Size$|Type"]);
                 command_chain = command_chain.pipe(csvlens_command);
             }
-            ResolvedViewer::Custom(name) => {
+            ResolvedViewer::Custom(parts) => {
                 command_chain.commands[0].args(["--output", "csv"]);
-                let mut custom_command = Command::new(&name);
-                custom_command.current_dir(workdir);
+                let mut custom_command = Command::new(&parts[0]);
+                custom_command.args(&parts[1..]).current_dir(workdir);
                 command_chain = command_chain.pipe(custom_command);
             }
             ResolvedViewer::Table => {
