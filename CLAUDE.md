@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for AI assistants working with this repository.
 
 ## Commands
 
@@ -8,28 +8,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build                  # build
 cargo run -- <args>          # run
 cargo test                   # run all tests
-cargo test <test_name>       # run a single test
 cargo clippy                 # lint
 cargo fmt                    # format
 ```
 
 ## Architecture
 
-This is `branch_diff`, a Rust CLI tool that builds and compares [connectedhomeip](https://github.com/project-chip/connectedhomeip) ELF binaries across jj bookmarks for size diff analysis.
+`branch_diff` is a Rust CLI tool designed to build and compare binaries (specifically for the [connectedhomeip](https://github.com/project-chip/connectedhomeip) project) across different source revisions (jj bookmarks/tags) for size and difference analysis.
 
-### Data flow
+### Project Structure
 
-**build subcommand**: `main.rs` → `commands/build.rs` → `tag_generator.rs` (resolves jj bookmark) → spawns `bash` or `podman exec bld_vscode` running `scripts/build/build_examples.py --target <app> --copy-artifacts-to out/branch-builds/<tag>/`
+- **`src/main.rs`**: CLI entry point and orchestration.
+- **`src/commands/`**: Subcommand handlers (`build`, `compare`).
+- **`src/domain/`**: Core business logic and data structures.
+    - `artifacts.rs`: ELF discovery, path parsing, and `BuildArtifacts` management.
+    - `vcs.rs`: Version control system interaction (specifically `jj`).
+- **`src/runner/`**: Execution layer for external processes.
+    - `build_engine.rs`: Logic for Host vs. Podman build dispatch.
+    - `diff_engine.rs`: Logic for running `binary_elf_size_diff.py` and piping to `csvlens`.
+    - `process.rs`: `CommandChain` utility for command piping.
+- **`src/ui/`**: User interface components.
+    - `fuzzy.rs`: Generic `skim` wrapper and the `SelectItem` trait for interactive selection.
+- **`src/persistence.rs`**: Manages `SessionState` (stored in `~/.cache/branch_diff/session.toml`).
 
-**compare subcommand**: `main.rs` → `commands/compare.rs` → `selector.rs` (skim fuzzy UI to pick app + two tags) → spawns `uv run scripts/tools/binary_elf_size_diff.py`
+### Data Flow
 
-### Key design details
+**Build Subcommand**: 
+`main.rs` → `commands/build.rs` → `domain/vcs.rs` (resolves tag) → `runner/build_engine.rs` (dispatches to `bash` or `podman exec`) → `scripts/build/build_examples.py`.
 
-- **Tag resolution** (`tag_generator.rs`): If `--tag` not given, checks if jj working copy is clean and reads the bookmark at `@-`. If dirty or no bookmark, falls back to interactive skim selection (commit ID, custom, or any listed bookmark).
-- **Artifact discovery** (`selector.rs` / `BuildArtifacts::find`): Walks `out/branch-builds/` in the workdir, reads every file and uses `goblin` to confirm it's an ELF. Builds a `BTreeMap<app_path, Vec<(tag, SystemTime)>>` sorted newest-first per app.
-- **Typed selection** (`selector.rs`): `SelectItem` trait with a `display_text()` method. `AppItem` and `TagItem` implement it with column-aligned formatting (timestamps included). The generic `select<T: SelectItem>(prompt, items, default_index)` places the default at position 0, runs skim, then recovers the original `T` by exact `display_text()` match — no string parsing. `String` also implements `SelectItem` for plain lists (e.g. build targets). `create_tag_items(entries)` computes column width over a given slice so filtered subsets stay aligned.
-- **Defaults persistence** (`defaults.rs`): `~/.cache/branch_diff/defaults.toml` stores `workdir`, `from_file`, `to_file`, and `recent_applications` (last 10 build targets). Loaded on startup, saved after each successful operation. The default item in each skim prompt is found by position (`items.iter().position(|i| i.field == stored_value)`).
-- **Defaults persistence** (`defaults.rs`): `~/.cache/branch_diff/defaults.toml` stores `workdir`, `from_file`, `to_file` as relative paths (relative to workdir). Loaded on startup, saved after each successful operation.
-- **Workdir validation**: Must contain `scripts/activate.sh` — this is the connectedhomeip activation script used to source the build environment.
-- **Build dispatch**: `linux-x64-*` targets run locally via `bash -c`; all other targets run inside `podman exec -w /workspace bld_vscode`.
-- **Compare argument format**: Paths passed on CLI can be absolute or workdir-relative; `normalize_path_str` strips the workdir prefix to store them as relative paths. `parse_artifact_path` expects `out/branch-builds/<tag>/<app_path>`.
+**Compare Subcommand**: 
+`main.rs` → `commands/compare.rs` → `ui/fuzzy.rs` (to pick app + tags) → `runner/diff_engine.rs` (runs size diff script) → optional pipe to `csvlens`.
+
+### Key Design Details
+
+- **Tag Resolution** (`domain/vcs.rs`): Automatically uses a clean bookmark at `@-` if available; otherwise, prompts via `skim` with options for current commit ID, recent bookmarks, or custom entry.
+- **Artifact Discovery** (`domain/artifacts.rs`): Recursively walks `out/branch-builds/`, validates ELF headers using `goblin`, and groups them by application path and tag.
+- **Fuzzy Selection** (`ui/fuzzy.rs`): Uses a `SelectItem` trait. `AppItem` and `TagItem` implement this with ANSI-decorated, column-aligned formatting. Selection recovery uses exact `display_text()` matching.
+- **Session Persistence** (`persistence.rs`): Stores `workdir`, `recent_applications`, `default_targets`, and last-used comparison files. Paths are stored relative to the `workdir`.
+- **Environment Requirements**: The `workdir` must contain `scripts/activate.sh`.
+- **Build Dispatch**: `linux-x64-*` targets run locally; others run via `podman` in the `bld_vscode` container.
