@@ -99,9 +99,8 @@ fn resolve_compare_args(
                 .filter(|(_, app)| app == &selected_app.path)
                 .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
 
-            let selected_tag =
-                fuzzy::select("Select BASELINE tag", tag_items, default_tag_index)
-                    .wrap_err("Failed to select baseline tag")?;
+            let selected_tag = fuzzy::select("Select BASELINE tag", tag_items, default_tag_index)
+                .wrap_err("Failed to select baseline tag")?;
 
             build_path(&selected_tag.name, &selected_app.path)
         }
@@ -146,9 +145,8 @@ fn resolve_compare_args(
                 .filter(|(_, app)| app == &from_app_path)
                 .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
 
-            let selected_tag =
-                fuzzy::select("Select COMPARISON tag", tag_items, default_tag_index)
-                    .wrap_err("Failed to select comparison tag")?;
+            let selected_tag = fuzzy::select("Select COMPARISON tag", tag_items, default_tag_index)
+                .wrap_err("Failed to select comparison tag")?;
 
             build_path(&selected_tag.name, &from_app_path)
         }

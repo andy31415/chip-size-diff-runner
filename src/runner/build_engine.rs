@@ -1,4 +1,4 @@
-use eyre::{Result, eyre, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use log::{debug, error, info};
 use std::path::Path;
 use std::process::{Command, Stdio};

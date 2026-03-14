@@ -86,8 +86,9 @@ impl SessionState {
 
         let mut file = fs::File::create(&path)
             .wrap_err_with(|| format!("Failed to create session file: {}", path.display()))?;
-        file.write_all(toml_string.as_bytes())
-            .wrap_err_with(|| format!("Failed to write session state to file: {}", path.display()))?;
+        file.write_all(toml_string.as_bytes()).wrap_err_with(|| {
+            format!("Failed to write session state to file: {}", path.display())
+        })?;
         debug!("Saved session state to {}: {:?}", path.display(), self);
         Ok(())
     }

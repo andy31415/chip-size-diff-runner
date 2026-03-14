@@ -93,11 +93,7 @@ fn build_candidate_list(
 
 /// Resolves the application name: uses the CLI argument if provided, otherwise
 /// presents an interactive fuzzy-find selection.
-fn resolve_application(
-    args: &BuildArgs,
-    workdir: &Path,
-    session: &SessionState,
-) -> Result<String> {
+fn resolve_application(args: &BuildArgs, workdir: &Path, session: &SessionState) -> Result<String> {
     if let Some(app) = &args.application {
         return Ok(app.clone());
     }

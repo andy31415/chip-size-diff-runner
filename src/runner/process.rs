@@ -1,4 +1,4 @@
-use eyre::{Result, eyre, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use std::process::{Child, Command, Stdio};
 
 /// Represents a chain of commands to be piped together.

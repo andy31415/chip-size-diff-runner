@@ -8,7 +8,12 @@ use which::which;
 /// Executes the size difference script to compare the two artifact files.
 ///
 /// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
-pub fn run_diff(from_path: &Path, to_path: &Path, workdir: &Path, extra_args: &[String]) -> Result<()> {
+pub fn run_diff(
+    from_path: &Path,
+    to_path: &Path,
+    workdir: &Path,
+    extra_args: &[String],
+) -> Result<()> {
     if !from_path.exists() {
         error!("From file not found: {}", from_path.display());
         return Err(eyre!("From file not found: {}", from_path.display()));
