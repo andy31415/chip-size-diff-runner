@@ -39,12 +39,7 @@ pub fn select<T: SelectItem>(
         return Err(eyre!("No items to select from."));
     }
 
-    // Build display order: default item first, rest unchanged.
-    let mut order: Vec<usize> = (0..items.len()).collect();
-    if let Some(di) = default_index.filter(|&i| i < items.len()) {
-        order.retain(|&i| i != di);
-        order.insert(0, di);
-    }
+    let order = build_ordered_indices(items.len(), default_index);
 
     // Pass skim_text() for display (may include ANSI). After selection, strip
     // ANSI from skim's output and match against plain display_text() for recovery.
@@ -56,6 +51,17 @@ pub fn select<T: SelectItem>(
         .into_iter()
         .find(|item| item.display_text() == selected_plain)
         .ok_or_else(|| eyre!("Selected item not found in original list"))
+}
+
+/// Returns item indices in display order: if `default_index` is valid, it is
+/// placed first; all others follow in their original order.
+fn build_ordered_indices(len: usize, default_index: Option<usize>) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..len).collect();
+    if let Some(di) = default_index.filter(|&i| i < len) {
+        order.retain(|&i| i != di);
+        order.insert(0, di);
+    }
+    order
 }
 
 /// Core skim invocation: takes ANSI-decorated display strings, returns the raw
@@ -123,6 +129,32 @@ mod tests {
     #[test]
     fn test_select_item_for_string() {
         assert_eq!("hello".to_string().display_text(), "hello");
+    }
+
+    #[test]
+    fn test_build_ordered_indices_no_default_is_identity() {
+        assert_eq!(build_ordered_indices(3, None), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_build_ordered_indices_default_moved_to_front() {
+        assert_eq!(build_ordered_indices(4, Some(2)), vec![2, 0, 1, 3]);
+    }
+
+    #[test]
+    fn test_build_ordered_indices_default_already_first() {
+        assert_eq!(build_ordered_indices(3, Some(0)), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_build_ordered_indices_out_of_bounds_ignored() {
+        assert_eq!(build_ordered_indices(3, Some(5)), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_build_ordered_indices_single_item() {
+        assert_eq!(build_ordered_indices(1, Some(0)), vec![0]);
+        assert_eq!(build_ordered_indices(1, None), vec![0]);
     }
 
     #[test]

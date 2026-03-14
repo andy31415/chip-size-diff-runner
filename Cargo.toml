@@ -19,3 +19,6 @@ skim = "4.0.0"
 toml = "1.0.6"
 walkdir = "2.5.0"
 which = "6.0"
+
+[dev-dependencies]
+tempfile = "3"

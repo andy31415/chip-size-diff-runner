@@ -213,6 +213,7 @@ dependencies = [
  "owo-colors",
  "serde",
  "skim",
+ "tempfile",
  "toml",
  "walkdir",
  "which 6.0.3",

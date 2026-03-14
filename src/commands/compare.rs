@@ -1,10 +1,11 @@
-use crate::domain::artifacts::{BuildArtifacts, build_path, create_tag_items};
+use crate::domain::artifacts::{BUILDS_PATH_PREFIX, BuildArtifacts, build_path, create_tag_items};
 use crate::persistence::SessionState;
 use crate::runner::diff_engine::{self, ViewerTool};
 use crate::ui::fuzzy;
 use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// Arguments for the `compare` subcommand.
 #[derive(Parser, Debug)]
@@ -45,15 +46,28 @@ struct ResolvedCompareArgs {
 
 /// Parses an artifact path string into tag and application path components.
 ///
-/// Expected format: "out/branch-builds/<tag>/<app_path>"
+/// Expected format: `"<BUILDS_PATH_PREFIX>/<tag>/<app_path>"`
 /// Returns `Some((tag, app_path))` on success, `None` otherwise.
 fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = path_str.splitn(4, '/').collect();
-    if parts.len() == 4 && parts[0] == "out" && parts[1] == "branch-builds" {
-        Some((parts[2].to_string(), parts[3].to_string())) // (tag, app_path)
-    } else {
-        None
-    }
+    let rest = path_str.strip_prefix(&format!("{}/", BUILDS_PATH_PREFIX))?;
+    let mut parts = rest.splitn(2, '/');
+    let tag = parts.next()?.to_string();
+    let app = parts.next()?.to_string();
+    Some((tag, app))
+}
+
+/// Returns all entries for an app excluding the given tag.
+///
+/// Used when selecting the comparison target to prevent comparing a build with itself.
+fn filter_other_entries(
+    entries: &[(String, SystemTime)],
+    exclude_tag: &str,
+) -> Vec<(String, SystemTime)> {
+    entries
+        .iter()
+        .filter(|(name, _)| name != exclude_tag)
+        .cloned()
+        .collect()
 }
 
 /// Normalizes a given path string. If the path is absolute, it attempts to strip
@@ -132,11 +146,7 @@ fn resolve_compare_args(
                 .apps
                 .get(&from_app_path)
                 .ok_or_else(|| eyre!("Failed to get tags for app: {}", from_app_path))?;
-            let other_entries: Vec<_> = all_entries
-                .iter()
-                .filter(|(name, _)| name != &from_tag)
-                .cloned()
-                .collect();
+            let other_entries = filter_other_entries(all_entries, &from_tag);
             if other_entries.is_empty() {
                 return Err(eyre!(
                     "No other tags found for application: {}",
@@ -242,5 +252,48 @@ mod tests {
             normalize_path_str("relative/path", &workdir),
             "relative/path"
         );
+    }
+
+    // Confirms that parse_artifact_path correctly inverts build_path.
+    // These two functions must stay in sync; this test links them explicitly.
+    #[test]
+    fn test_parse_artifact_path_roundtrips_build_path() {
+        use crate::domain::artifacts::build_path;
+        assert_eq!(
+            parse_artifact_path(&build_path("my-tag", "sub/app.elf")),
+            Some(("my-tag".to_string(), "sub/app.elf".to_string()))
+        );
+        assert_eq!(
+            parse_artifact_path(&build_path("v1.0", "app")),
+            Some(("v1.0".to_string(), "app".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_filter_other_entries_excludes_tag() {
+        let entries = vec![
+            ("tag-a".to_string(), SystemTime::UNIX_EPOCH),
+            ("tag-b".to_string(), SystemTime::UNIX_EPOCH),
+            ("tag-c".to_string(), SystemTime::UNIX_EPOCH),
+        ];
+        let result = filter_other_entries(&entries, "tag-b");
+        let names: Vec<&str> = result.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["tag-a", "tag-c"]);
+    }
+
+    #[test]
+    fn test_filter_other_entries_only_tag_returns_empty() {
+        let entries = vec![("only-tag".to_string(), SystemTime::UNIX_EPOCH)];
+        assert!(filter_other_entries(&entries, "only-tag").is_empty());
+    }
+
+    #[test]
+    fn test_filter_other_entries_missing_tag_returns_all() {
+        let entries = vec![
+            ("tag-a".to_string(), SystemTime::UNIX_EPOCH),
+            ("tag-b".to_string(), SystemTime::UNIX_EPOCH),
+        ];
+        let result = filter_other_entries(&entries, "tag-x");
+        assert_eq!(result.len(), 2);
     }
 }

@@ -85,6 +85,12 @@ pub fn create_tag_items(entries: &[(String, SystemTime)]) -> Vec<TagItem> {
         .collect()
 }
 
+/// Root-relative prefix for all branch build outputs.
+///
+/// This is the single source of truth for the path format shared by
+/// `build_path()` and `parse_artifact_path()` in the compare command.
+pub const BUILDS_PATH_PREFIX: &str = "out/branch-builds";
+
 /// The collection of ELF build artifacts found under `out/branch-builds/`.
 pub struct BuildArtifacts {
     /// app_path → Vec<(tag_name, modified_time)>, sorted newest-first.
@@ -95,7 +101,7 @@ impl BuildArtifacts {
     /// Walks `out/branch-builds/` in the workdir, identifies ELF files, records
     /// their modification time, and sorts each app's tags newest-first.
     pub fn find(workdir: &Path) -> Result<Self> {
-        let builds_dir = workdir.join("out/branch-builds");
+        let builds_dir = workdir.join(BUILDS_PATH_PREFIX);
         let mut apps: BTreeMap<String, Vec<(String, SystemTime)>> = BTreeMap::new();
 
         if !builds_dir.exists() {
@@ -179,13 +185,84 @@ impl BuildArtifacts {
 
 /// Constructs the relative path to an artifact: `"out/branch-builds/<tag>/<app_path>"`.
 pub fn build_path(tag: &str, app_path: &str) -> String {
-    format!("out/branch-builds/{}/{}", tag, app_path)
+    format!("{}/{}/{}", BUILDS_PATH_PREFIX, tag, app_path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::fuzzy::strip_ansi_codes;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // Returns a minimal valid ELF64 header (64 bytes).
+    fn minimal_elf64() -> Vec<u8> {
+        let mut b = vec![0u8; 64];
+        b[0..4].copy_from_slice(b"\x7fELF");
+        b[4] = 2; // ELFCLASS64
+        b[5] = 1; // ELFDATA2LSB
+        b[6] = 1; // EV_CURRENT
+        b[16] = 2; // e_type: ET_EXEC
+        b[18] = 0x3e; // e_machine: EM_X86_64
+        b[20] = 1; // e_version
+        b[52] = 64; // e_ehsize
+        b[54] = 56; // e_phentsize
+        b[58] = 64; // e_shentsize
+        b
+    }
+
+    fn write_elf(dir: &TempDir, relative: &str) -> std::path::PathBuf {
+        let path = dir.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, minimal_elf64()).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_find_missing_builds_dir_returns_empty() {
+        let tmp = TempDir::new().unwrap();
+        let artifacts = BuildArtifacts::find(tmp.path()).unwrap();
+        assert!(artifacts.apps.is_empty());
+    }
+
+    #[test]
+    fn test_find_non_elf_file_is_ignored() {
+        let tmp = TempDir::new().unwrap();
+        let build_dir = tmp.path().join(BUILDS_PATH_PREFIX).join("tag1");
+        fs::create_dir_all(&build_dir).unwrap();
+        fs::write(build_dir.join("not_elf.bin"), b"this is not an elf").unwrap();
+
+        let artifacts = BuildArtifacts::find(tmp.path()).unwrap();
+        assert!(artifacts.apps.is_empty());
+    }
+
+    #[test]
+    fn test_find_discovers_elf_and_groups_by_app() {
+        let tmp = TempDir::new().unwrap();
+        write_elf(&tmp, &format!("{}/tag1/subdir/app.elf", BUILDS_PATH_PREFIX));
+        write_elf(&tmp, &format!("{}/tag2/subdir/app.elf", BUILDS_PATH_PREFIX));
+
+        let artifacts = BuildArtifacts::find(tmp.path()).unwrap();
+        assert_eq!(artifacts.apps.len(), 1);
+        let tags: Vec<&str> = artifacts.apps["subdir/app.elf"]
+            .iter()
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(tags.contains(&"tag1"));
+        assert!(tags.contains(&"tag2"));
+    }
+
+    #[test]
+    fn test_find_multiple_apps_separated() {
+        let tmp = TempDir::new().unwrap();
+        write_elf(&tmp, &format!("{}/tag1/app-a/binary", BUILDS_PATH_PREFIX));
+        write_elf(&tmp, &format!("{}/tag1/app-b/binary", BUILDS_PATH_PREFIX));
+
+        let artifacts = BuildArtifacts::find(tmp.path()).unwrap();
+        assert_eq!(artifacts.apps.len(), 2);
+        assert!(artifacts.apps.contains_key("app-a/binary"));
+        assert!(artifacts.apps.contains_key("app-b/binary"));
+    }
 
     #[test]
     fn test_build_path() {
@@ -197,6 +274,8 @@ mod tests {
             build_path("my-tag", "other_app"),
             "out/branch-builds/my-tag/other_app"
         );
+        // build_path must always start with the shared prefix constant.
+        assert!(build_path("t", "a").starts_with(BUILDS_PATH_PREFIX));
     }
 
     #[test]
