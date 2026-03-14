@@ -55,6 +55,7 @@ pub fn select<T: SelectItem>(
 
 /// Returns item indices in display order: if `default_index` is valid, it is
 /// placed first; all others follow in their original order.
+#[must_use]
 fn build_ordered_indices(len: usize, default_index: Option<usize>) -> Vec<usize> {
     let mut order: Vec<usize> = (0..len).collect();
     if let Some(di) = default_index.filter(|&i| i < len) {
@@ -105,6 +106,16 @@ fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
 }
 
 /// Strips CSI escape sequences (`\x1b[...m`) from a string, returning plain text.
+///
+/// # Examples
+///
+/// ```
+/// use branch_diff::ui::fuzzy::strip_ansi_codes;
+/// assert_eq!(strip_ansi_codes("hello"), "hello");
+/// assert_eq!(strip_ansi_codes("\x1b[2mhello\x1b[0m"), "hello");
+/// assert_eq!(strip_ansi_codes("tag  \x1b[32m(2024-01-15)\x1b[0m"), "tag  (2024-01-15)");
+/// ```
+#[must_use]
 pub fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();

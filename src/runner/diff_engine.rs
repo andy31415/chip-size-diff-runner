@@ -5,7 +5,21 @@ use std::path::Path;
 use std::process::Command;
 use which::which;
 
+/// Columns shown by default in csvlens. Omits `Size1`/`Size2` which are rarely
+/// useful and waste horizontal space; `Function`, `Type`, and `Size` cover most
+/// review workflows.
+const CSVLENS_DEFAULT_COLUMNS: &str = "Function|Size$|Type";
+
 /// The viewer tool to pipe CSV output to.
+///
+/// # Examples
+///
+/// ```
+/// use branch_diff::runner::diff_engine::ViewerTool;
+/// assert!(ViewerTool::from_str("csvlens").is_ok());
+/// assert!(ViewerTool::from_str("custom:grep chip").is_ok());
+/// assert!(ViewerTool::from_str("unknown").is_err());
+/// ```
 #[derive(Debug, PartialEq)]
 pub enum ViewerTool {
     /// Auto-detect: prefer `vd`, then `csvlens`, then plain table output.
@@ -17,6 +31,11 @@ pub enum ViewerTool {
 }
 
 impl ViewerTool {
+    /// Parses a viewer name string into a `ViewerTool`.
+    ///
+    /// Valid values: `default`, `vd`, `visidata`, `csvlens`, `custom:<cmd>`.
+    /// For `custom`, arguments are supported: `custom:grep chip` → `grep` with arg `chip`.
+    #[must_use = "parsing a viewer string has no effect if the result is unused"]
     pub fn from_str(s: &str) -> Result<Self> {
         match s {
             "default" => Ok(Self::Default),
@@ -92,50 +111,72 @@ pub fn run_diff(
         to_path.display()
     );
 
-    let mut diff_command = Command::new("uv");
-    diff_command.args(["run", "scripts/tools/binary_elf_size_diff.py"]);
-    diff_command.current_dir(workdir);
+    let mut diff_cmd = Command::new("uv");
+    diff_cmd
+        .args(["run", "scripts/tools/binary_elf_size_diff.py"])
+        .current_dir(workdir);
 
-    let mut command_chain = CommandChain::new(diff_command);
-
-    if extra_args.is_empty() {
-        match viewer.resolve() {
-            ResolvedViewer::Visidata => {
-                command_chain.commands[0].args(["--output", "csv"]);
-                let mut vd_command = Command::new("vd");
-                vd_command.current_dir(workdir).arg("-");
-                command_chain = command_chain.pipe(vd_command);
-            }
-            ResolvedViewer::Csvlens => {
-                command_chain.commands[0].args(["--output", "csv"]);
-                let mut csvlens_command = Command::new("csvlens");
-
-                // Avoid `Size1` and `Size2` columns as they are useless most of the time (take up
-                // vertical space). Function, Type and Size seems to be what I use most.
-                csvlens_command
-                    .current_dir(workdir)
-                    .args(["--columns", "Function|Size$|Type"]);
-                command_chain = command_chain.pipe(csvlens_command);
-            }
-            ResolvedViewer::Custom(parts) => {
-                command_chain.commands[0].args(["--output", "csv"]);
-                let mut custom_command = Command::new(&parts[0]);
-                custom_command.args(&parts[1..]).current_dir(workdir);
-                command_chain = command_chain.pipe(custom_command);
-            }
-            ResolvedViewer::Table => {
-                command_chain.commands[0].args(["--output", "table"]);
-            }
-        }
+    // Build the full diff command (including output format and positional paths)
+    // before constructing the chain so the chain's first command is immutable
+    // once created.
+    let chain = if extra_args.is_empty() {
+        build_viewer_chain(diff_cmd, from_path, to_path, workdir, viewer)
     } else {
-        command_chain.commands[0].args(extra_args);
+        diff_cmd.args(extra_args).arg(to_path).arg(from_path);
+        CommandChain::new(diff_cmd)
+    };
+
+    debug!("Executing: {:?}", chain);
+    chain.execute()
+}
+
+/// Finalises the diff command with the correct `--output` flag and paths, then
+/// wraps it in a `CommandChain` with the appropriate viewer piped on the end.
+fn build_viewer_chain(
+    mut diff_cmd: Command,
+    from_path: &Path,
+    to_path: &Path,
+    workdir: &Path,
+    viewer: &ViewerTool,
+) -> CommandChain {
+    match viewer.resolve() {
+        ResolvedViewer::Visidata => {
+            diff_cmd
+                .args(["--output", "csv"])
+                .arg(to_path)
+                .arg(from_path);
+            let mut vd = Command::new("vd");
+            vd.current_dir(workdir).arg("-");
+            CommandChain::new(diff_cmd).pipe(vd)
+        }
+        ResolvedViewer::Csvlens => {
+            diff_cmd
+                .args(["--output", "csv"])
+                .arg(to_path)
+                .arg(from_path);
+            let mut csvlens = Command::new("csvlens");
+            csvlens
+                .current_dir(workdir)
+                .args(["--columns", CSVLENS_DEFAULT_COLUMNS]);
+            CommandChain::new(diff_cmd).pipe(csvlens)
+        }
+        ResolvedViewer::Custom(parts) => {
+            diff_cmd
+                .args(["--output", "csv"])
+                .arg(to_path)
+                .arg(from_path);
+            let mut custom = Command::new(&parts[0]);
+            custom.args(&parts[1..]).current_dir(workdir);
+            CommandChain::new(diff_cmd).pipe(custom)
+        }
+        ResolvedViewer::Table => {
+            diff_cmd
+                .args(["--output", "table"])
+                .arg(to_path)
+                .arg(from_path);
+            CommandChain::new(diff_cmd)
+        }
     }
-
-    command_chain.commands[0].arg(to_path);
-    command_chain.commands[0].arg(from_path);
-
-    debug!("Running command chain: {:?}", command_chain.commands);
-    command_chain.execute()
 }
 
 #[cfg(test)]

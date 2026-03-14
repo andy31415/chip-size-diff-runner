@@ -1,4 +1,4 @@
-use crate::ui::fuzzy;
+use crate::ui::fuzzy::{self, SelectItem};
 use eyre::{Result, WrapErr, eyre};
 use log::{debug, warn};
 use std::path::Path;
@@ -36,6 +36,7 @@ fn is_working_copy_clean(workdir: &Path) -> Result<bool> {
 ///
 /// `jj bookmark list` emits lines like `"my-feature: abc123 ..."`.
 /// Returns `None` for empty or malformed lines.
+#[must_use]
 fn parse_bookmark_name(line: &str) -> Option<String> {
     let name = line.split(':').next().unwrap_or("").trim().to_string();
     if name.is_empty() { None } else { Some(name) }
@@ -68,10 +69,38 @@ fn get_short_commit_id(workdir: &Path, rev: &str) -> Result<String> {
 }
 
 /// Returns all bookmark names in the repository, for use as manual tag options.
-fn get_recent_bookmarks(workdir: &Path) -> Result<Vec<String>> {
+fn list_bookmarks(workdir: &Path) -> Result<Vec<String>> {
     let output =
         run_jj_command(workdir, &["bookmark", "list"]).wrap_err("Failed to list bookmarks")?;
     Ok(output.lines().filter_map(parse_bookmark_name).collect())
+}
+
+/// The choices offered to the user when a tag cannot be determined automatically.
+enum TagOption {
+    CommitId(String),
+    Bookmark(String),
+    Custom,
+}
+
+impl SelectItem for TagOption {
+    fn display_text(&self) -> String {
+        match self {
+            Self::CommitId(id) => format!("Commit ID: {}", id),
+            Self::Bookmark(name) => format!("Bookmark: {}", name),
+            Self::Custom => "Enter custom tag…".to_string(),
+        }
+    }
+}
+
+/// Builds the ordered list of tag options for the interactive prompt.
+///
+/// Order: commit ID first, custom entry second, then all bookmarks.
+fn build_tag_options(commit_id: String, bookmarks: Vec<String>) -> Vec<TagOption> {
+    let mut options = vec![TagOption::CommitId(commit_id), TagOption::Custom];
+    for bookmark in bookmarks {
+        options.push(TagOption::Bookmark(bookmark));
+    }
+    options
 }
 
 /// Resolves the tag (output directory name) to use for a build.
@@ -93,34 +122,30 @@ pub fn generate_tag(workdir: &Path, explicit_tag: Option<String>) -> Result<Stri
         debug!("Working copy clean, but no bookmark found at @-");
     }
 
-    let current_commit_id = get_short_commit_id(workdir, "@")?;
-    let mut options = vec![
-        format!("Use current commit ID: {}", current_commit_id),
-        "Enter custom tag".to_string(),
-    ];
-
-    match get_recent_bookmarks(workdir) {
-        Ok(bookmarks) => {
-            for bookmark in bookmarks {
-                options.push(format!("Use bookmark: {}", bookmark));
-            }
+    let commit_id = get_short_commit_id(workdir, "@")?;
+    let bookmarks = match list_bookmarks(workdir) {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("Failed to get bookmarks: {}", e);
+            vec![]
         }
-        Err(e) => warn!("Failed to get recent bookmarks: {}", e),
-    }
+    };
 
+    let options = build_tag_options(commit_id.clone(), bookmarks);
     let selection = fuzzy::select("Select tag for build output", options, None)
         .wrap_err("Failed to select tag")?;
-    debug!("tag_generator selection: {:?}", selection);
+    debug!("tag_generator selection: {:?}", selection.display_text());
 
-    if selection.starts_with("Use current commit ID: ") {
-        Ok(format!("jj-{}", current_commit_id))
-    } else if selection == "Enter custom tag" {
-        // TODO: Prompt for custom tag input
-        Err(eyre!("Custom tag input not yet implemented"))
-    } else if selection.starts_with("Use bookmark: ") {
-        Ok(selection.replace("Use bookmark: ", ""))
-    } else {
-        Err(eyre!("Unexpected selection: {}", selection))
+    match selection {
+        TagOption::CommitId(_) => Ok(format!("jj-{}", commit_id)),
+        TagOption::Bookmark(name) => Ok(name),
+        TagOption::Custom => {
+            let tag = dialoguer::Input::new()
+                .with_prompt("Enter custom tag")
+                .interact_text()
+                .wrap_err("Failed to read custom tag")?;
+            Ok(tag)
+        }
     }
 }
 
@@ -156,5 +181,38 @@ mod tests {
             parse_bookmark_name("  spaced-name  : rest"),
             Some("spaced-name".to_string())
         );
+    }
+
+    #[test]
+    fn test_build_tag_options_ordering() {
+        let opts = build_tag_options(
+            "abc123".to_string(),
+            vec!["feature-a".to_string(), "feature-b".to_string()],
+        );
+        assert!(matches!(opts[0], TagOption::CommitId(_)));
+        assert!(matches!(opts[1], TagOption::Custom));
+        assert!(matches!(opts[2], TagOption::Bookmark(_)));
+        assert!(matches!(opts[3], TagOption::Bookmark(_)));
+    }
+
+    #[test]
+    fn test_build_tag_options_no_bookmarks() {
+        let opts = build_tag_options("abc123".to_string(), vec![]);
+        assert_eq!(opts.len(), 2);
+        assert!(matches!(opts[0], TagOption::CommitId(_)));
+        assert!(matches!(opts[1], TagOption::Custom));
+    }
+
+    #[test]
+    fn test_tag_option_display_text() {
+        assert_eq!(
+            TagOption::CommitId("kxqv".to_string()).display_text(),
+            "Commit ID: kxqv"
+        );
+        assert_eq!(
+            TagOption::Bookmark("main".to_string()).display_text(),
+            "Bookmark: main"
+        );
+        assert_eq!(TagOption::Custom.display_text(), "Enter custom tag…");
     }
 }

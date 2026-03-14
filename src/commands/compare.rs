@@ -59,6 +59,7 @@ fn parse_artifact_path(path_str: &str) -> Option<(String, String)> {
 /// Returns all entries for an app excluding the given tag.
 ///
 /// Used when selecting the comparison target to prevent comparing a build with itself.
+#[must_use]
 fn filter_other_entries(
     entries: &[(String, SystemTime)],
     exclude_tag: &str,
@@ -177,10 +178,11 @@ fn resolve_compare_args(
 }
 
 /// Handles the logic for the `compare` subcommand.
-pub fn handle_compare(args: &CompareArgs, workdir: &Path) -> Result<()> {
+///
+/// Accepts the session loaded by the caller to avoid a double load.
+pub fn handle_compare(args: &CompareArgs, workdir: &Path, mut session: SessionState) -> Result<()> {
     let viewer = ViewerTool::from_str(&args.viewer).wrap_err("Invalid --viewer value")?;
 
-    let mut session = SessionState::load().wrap_err("Failed to load session state")?;
     let resolved_args = resolve_compare_args(args, workdir, &session)
         .wrap_err("Failed to resolve compare arguments")?;
 

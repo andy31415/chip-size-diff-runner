@@ -1,18 +1,11 @@
+use branch_diff::commands::build::{self, BuildArgs};
+use branch_diff::commands::compare::{self, CompareArgs};
+use branch_diff::persistence::SessionState;
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::{self, Context, Result};
 use env_logger::Env;
 use log::{debug, error, info};
 use std::path::PathBuf;
-
-mod commands;
-mod domain;
-mod persistence;
-mod runner;
-mod ui;
-
-use commands::build::{self, BuildArgs};
-use commands::compare::{self, CompareArgs};
-use persistence::SessionState;
 
 /// A CLI tool to build and compare application binaries across different tags.
 ///
@@ -70,6 +63,9 @@ fn main() -> Result<()> {
 }
 
 /// Resolves the workdir, validates it, saves it for future runs, then dispatches.
+///
+/// The session is loaded once here and passed to the command handler so handlers
+/// don't need to load it a second time.
 fn run_app(cli: &Cli) -> Result<()> {
     let mut session = SessionState::load().wrap_err("Failed to load session state")?;
 
@@ -89,7 +85,8 @@ fn run_app(cli: &Cli) -> Result<()> {
     }
     info!("Using working directory: {}", workdir.display());
 
-    // Save the used workdir back to session state
+    // Save the used workdir back to session state immediately so it persists
+    // even if the subsequent command fails.
     if session.workdir.as_deref() != Some(workdir_str.as_str()) {
         debug!("Saving new default workdir: {}", workdir_str);
         session.workdir = Some(workdir_str);
@@ -98,10 +95,10 @@ fn run_app(cli: &Cli) -> Result<()> {
 
     match &cli.command {
         Commands::Build(args) => {
-            build::handle_build(args, &workdir).wrap_err("Build command failed")?;
+            build::handle_build(args, &workdir, session).wrap_err("Build command failed")?;
         }
         Commands::Compare(args) => {
-            compare::handle_compare(args, &workdir).wrap_err("Compare command failed")?;
+            compare::handle_compare(args, &workdir, session).wrap_err("Compare command failed")?;
         }
     }
 

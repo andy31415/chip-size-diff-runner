@@ -183,7 +183,16 @@ impl BuildArtifacts {
     }
 }
 
-/// Constructs the relative path to an artifact: `"out/branch-builds/<tag>/<app_path>"`.
+/// Constructs the relative path to an artifact.
+///
+/// # Examples
+///
+/// ```
+/// use branch_diff::domain::artifacts::build_path;
+/// assert_eq!(build_path("v1.0", "chip-tool"), "out/branch-builds/v1.0/chip-tool");
+/// assert_eq!(build_path("my-tag", "sub/dir/app"), "out/branch-builds/my-tag/sub/dir/app");
+/// ```
+#[must_use]
 pub fn build_path(tag: &str, app_path: &str) -> String {
     format!("{}/{}/{}", BUILDS_PATH_PREFIX, tag, app_path)
 }

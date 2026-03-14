@@ -1,3 +1,4 @@
+use crate::domain::artifacts::BUILDS_PATH_PREFIX;
 use crate::domain::vcs;
 use crate::persistence::SessionState;
 use crate::runner::build_engine;
@@ -26,10 +27,10 @@ pub struct BuildArgs {
     pub tag: Option<String>,
 }
 
-/// Scans `out/branch-builds/<tag>/<target>/` and returns unique first-level subdirectory names,
-/// which correspond to build target names used in previous builds.
+/// Scans `out/branch-builds/<tag>/<target>/` and returns unique first-level
+/// subdirectory names, which correspond to build target names used in previous builds.
 fn discover_targets_from_builds(workdir: &Path) -> Vec<String> {
-    let builds_dir = workdir.join("out/branch-builds");
+    let builds_dir = workdir.join(BUILDS_PATH_PREFIX);
     let mut targets = BTreeSet::new();
 
     let Ok(branch_entries) = fs::read_dir(&builds_dir) else {
@@ -64,6 +65,7 @@ fn discover_targets_from_builds(workdir: &Path) -> Vec<String> {
 
 /// Builds the ordered, deduplicated list of candidate targets:
 /// recents first (preserving order), then discovered, then default_targets.
+#[must_use]
 fn build_candidate_list(
     recent: &[String],
     discovered: Vec<String>,
@@ -119,10 +121,9 @@ fn resolve_application(args: &BuildArgs, workdir: &Path, session: &SessionState)
 
 /// Handles the logic for the `build` subcommand.
 ///
-/// Determines the build tag/bookmark, creates the output directory, and orchestrates the build execution.
-pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
-    let mut session = SessionState::load().wrap_err("Failed to load session state")?;
-
+/// Determines the build tag/bookmark, creates the output directory, and orchestrates
+/// the build execution. Accepts the session loaded by the caller to avoid a double load.
+pub fn handle_build(args: &BuildArgs, workdir: &Path, mut session: SessionState) -> Result<()> {
     let application = resolve_application(args, workdir, &session)?;
 
     let tag_result = vcs::generate_tag(workdir, args.tag.clone());
@@ -133,7 +134,7 @@ pub fn handle_build(args: &BuildArgs, workdir: &Path) -> Result<()> {
     info!("Building application: {}", application);
     info!("Using tag: {}", tag);
 
-    let relative_output_dir = format!("out/branch-builds/{}", tag);
+    let relative_output_dir = format!("{}/{}", BUILDS_PATH_PREFIX, tag);
     let output_dir = workdir.join(&relative_output_dir);
     std::fs::create_dir_all(&output_dir).wrap_err_with(|| {
         format!(
