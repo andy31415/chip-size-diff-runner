@@ -25,7 +25,9 @@ impl ViewerTool {
                 let rest = s.trim_start_matches("custom:");
                 let parts: Vec<String> = rest.split_whitespace().map(str::to_string).collect();
                 if parts.is_empty() {
-                    Err(eyre!("custom: viewer requires a program name, e.g. custom:myviewer or custom:\"grep chip\""))
+                    Err(eyre!(
+                        "custom: viewer requires a program name, e.g. custom:myviewer or custom:\"grep chip\""
+                    ))
                 } else {
                     Ok(Self::Custom(parts))
                 }
