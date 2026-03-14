@@ -185,6 +185,7 @@ pub fn build_path(tag: &str, app_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::fuzzy::strip_ansi_codes;
 
     #[test]
     fn test_build_path() {

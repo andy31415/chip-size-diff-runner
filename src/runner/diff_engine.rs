@@ -6,6 +6,7 @@ use std::process::Command;
 use which::which;
 
 /// The viewer tool to pipe CSV output to.
+#[derive(Debug, PartialEq)]
 pub enum ViewerTool {
     /// Auto-detect: prefer `vd`, then `csvlens`, then plain table output.
     Default,
@@ -58,6 +59,7 @@ impl ViewerTool {
     }
 }
 
+#[derive(Debug, PartialEq)]
 enum ResolvedViewer {
     Table,
     Visidata,
@@ -134,4 +136,102 @@ pub fn run_diff(
 
     debug!("Running command chain: {:?}", command_chain.commands);
     command_chain.execute()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── from_str parsing ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_known_variants() {
+        assert_eq!(
+            ViewerTool::from_str("default").unwrap(),
+            ViewerTool::Default
+        );
+        assert_eq!(ViewerTool::from_str("vd").unwrap(), ViewerTool::Visidata);
+        assert_eq!(
+            ViewerTool::from_str("visidata").unwrap(),
+            ViewerTool::Visidata
+        );
+        assert_eq!(
+            ViewerTool::from_str("csvlens").unwrap(),
+            ViewerTool::Csvlens
+        );
+    }
+
+    #[test]
+    fn test_parse_custom_single_arg() {
+        assert_eq!(
+            ViewerTool::from_str("custom:myviewer").unwrap(),
+            ViewerTool::Custom(vec!["myviewer".to_string()]),
+        );
+    }
+
+    #[test]
+    fn test_parse_custom_multi_arg() {
+        // Simulates --viewer custom:"grep chip" after shell quote stripping.
+        assert_eq!(
+            ViewerTool::from_str("custom:grep chip").unwrap(),
+            ViewerTool::Custom(vec!["grep".to_string(), "chip".to_string()]),
+        );
+    }
+
+    #[test]
+    fn test_parse_custom_extra_whitespace() {
+        assert_eq!(
+            ViewerTool::from_str("custom:  grep   -i  foo  ").unwrap(),
+            ViewerTool::Custom(vec![
+                "grep".to_string(),
+                "-i".to_string(),
+                "foo".to_string()
+            ]),
+        );
+    }
+
+    #[test]
+    fn test_parse_custom_empty_is_error() {
+        assert!(ViewerTool::from_str("custom:").is_err());
+        assert!(ViewerTool::from_str("custom:   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_unknown_is_error() {
+        assert!(ViewerTool::from_str("").is_err());
+        assert!(ViewerTool::from_str("foobar").is_err());
+        assert!(ViewerTool::from_str("Custom:foo").is_err()); // case-sensitive
+    }
+
+    // ── resolve (deterministic variants only) ─────────────────────────────────
+
+    #[test]
+    fn test_resolve_visidata() {
+        assert_eq!(ViewerTool::Visidata.resolve(), ResolvedViewer::Visidata);
+    }
+
+    #[test]
+    fn test_resolve_csvlens() {
+        assert_eq!(ViewerTool::Csvlens.resolve(), ResolvedViewer::Csvlens);
+    }
+
+    #[test]
+    fn test_resolve_custom_preserves_args() {
+        let parts = vec!["grep".to_string(), "chip".to_string()];
+        assert_eq!(
+            ViewerTool::Custom(parts.clone()).resolve(),
+            ResolvedViewer::Custom(parts),
+        );
+    }
+
+    #[test]
+    fn test_resolve_default_returns_valid_variant() {
+        // We can't know which tool is installed in CI, but the result must be
+        // one of the three valid fallback variants.
+        let resolved = ViewerTool::Default.resolve();
+        assert!(matches!(
+            resolved,
+            ResolvedViewer::Visidata | ResolvedViewer::Csvlens | ResolvedViewer::Table
+        ));
+    }
 }
