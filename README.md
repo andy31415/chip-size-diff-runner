@@ -14,7 +14,7 @@ Ensure you have the following dependencies installed:
 - [Rust](https://www.rust-lang.org/) (latest stable)
 - [jj (Jujutsu)](https://github.com/martinvonz/jj)
 - [uv](https://github.com/astral-sh/uv) (for running Python diff scripts)
-- [csvlens](https://github.com/pvolok/csvlens) (optional, for enhanced comparison viewing)
+- [visidata](https://www.visidata.org/) or [csvlens](https://github.com/pvolok/csvlens) (optional, for enhanced comparison viewing)
 - [Podman](https://podman.io/) (if building non-linux-x64 targets)
 
 Build and install the binary:
@@ -67,16 +67,17 @@ Builds the application and stores it in `out/branch-builds/<TAG>/<APP_PATH>`.
 ### `compare` — Compare two build artifacts
 
 ```bash
-branch_diff compare [FROM_FILE] [TO_FILE] [-- EXTRA_DIFF_ARGS...]
+branch_diff compare [OPTIONS] [FROM_FILE] [TO_FILE] [-- EXTRA_DIFF_ARGS...]
 ```
 
 Compares two ELF binaries using `scripts/tools/binary_elf_size_diff.py`.
 
-| Argument | Description |
+| Argument/Option | Description |
 |---|---|
 | `FROM_FILE` | Baseline artifact path (absolute or relative to workdir). |
 | `TO_FILE` | Comparison artifact path (absolute or relative to workdir). |
-| `EXTRA_DIFF_ARGS` | Arguments passed to the diff script (after `--`). |
+| `--viewer <VIEWER>` | Viewer tool for the CSV output (see below). Default: `default`. |
+| `EXTRA_DIFF_ARGS` | Arguments passed directly to the diff script (after `--`). |
 
 **Interactive Mode**:
 If paths are omitted, the tool scans `out/branch-builds/` for ELF files and provides:
@@ -84,8 +85,14 @@ If paths are omitted, the tool scans `out/branch-builds/` for ELF files and prov
 2.  **Baseline Selection**: List of tags available for that app, sorted by newest first.
 3.  **Comparison Selection**: List of remaining tags for comparison.
 
-**Enhanced Viewing**:
-If `csvlens` is installed, the output is formatted as CSV and piped to `csvlens` with pre-configured column filters (`Function`, `Size`, `Type`) for an optimized review experience.
+**Viewer Options** (`--viewer`):
+
+| Value | Behaviour |
+|---|---|
+| `default` | Auto-detect: use `vd` if available, then `csvlens`, otherwise print a plain table. |
+| `vd` / `visidata` | Pipe CSV to `vd -`. |
+| `csvlens` | Pipe CSV to `csvlens` with pre-configured column filters (`Function`, `Size`, `Type`). |
+| `custom:<cmd>` | Pipe CSV to an arbitrary command. Arguments are supported, e.g. `custom:"grep chip"`. |
 
 ---
 
