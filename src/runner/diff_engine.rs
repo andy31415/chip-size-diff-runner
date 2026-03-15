@@ -1,6 +1,6 @@
 use crate::runner::process::CommandChain;
 use eyre::{Result, eyre};
-use log::{debug, error, info};
+use log::{debug, info};
 use std::path::Path;
 use std::process::Command;
 use which::which;
@@ -103,11 +103,9 @@ pub fn run_diff(
     viewer: &ViewerTool,
 ) -> Result<()> {
     if !from_path.exists() {
-        error!("From file not found: {}", from_path.display());
         return Err(eyre!("From file not found: {}", from_path.display()));
     }
     if !to_path.exists() {
-        error!("To file not found: {}", to_path.display());
         return Err(eyre!("To file not found: {}", to_path.display()));
     }
 
@@ -145,21 +143,24 @@ fn build_viewer_chain(
     workdir: &Path,
     viewer: &ViewerTool,
 ) -> CommandChain {
-    match viewer.resolve() {
+    let resolved = viewer.resolve();
+    let output_format = if matches!(resolved, ResolvedViewer::Table) {
+        "table"
+    } else {
+        "csv"
+    };
+    diff_cmd
+        .args(["--output", output_format])
+        .arg(to_path)
+        .arg(from_path);
+
+    match resolved {
         ResolvedViewer::Visidata => {
-            diff_cmd
-                .args(["--output", "csv"])
-                .arg(to_path)
-                .arg(from_path);
             let mut vd = Command::new("vd");
             vd.current_dir(workdir).arg("-");
             CommandChain::new(diff_cmd).pipe(vd)
         }
         ResolvedViewer::Csvlens => {
-            diff_cmd
-                .args(["--output", "csv"])
-                .arg(to_path)
-                .arg(from_path);
             let mut csvlens = Command::new("csvlens");
             csvlens
                 .current_dir(workdir)
@@ -167,21 +168,11 @@ fn build_viewer_chain(
             CommandChain::new(diff_cmd).pipe(csvlens)
         }
         ResolvedViewer::Custom(parts) => {
-            diff_cmd
-                .args(["--output", "csv"])
-                .arg(to_path)
-                .arg(from_path);
             let mut custom = Command::new(&parts[0]);
             custom.args(&parts[1..]).current_dir(workdir);
             CommandChain::new(diff_cmd).pipe(custom)
         }
-        ResolvedViewer::Table => {
-            diff_cmd
-                .args(["--output", "table"])
-                .arg(to_path)
-                .arg(from_path);
-            CommandChain::new(diff_cmd)
-        }
+        ResolvedViewer::Table => CommandChain::new(diff_cmd),
     }
 }
 

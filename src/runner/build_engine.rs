@@ -1,5 +1,5 @@
 use eyre::{Result, WrapErr, eyre};
-use log::{debug, error, info};
+use log::{debug, info};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -45,7 +45,6 @@ pub fn execute_build(
         .wrap_err("Failed to execute build command")?;
 
     if !status.success() {
-        error!("Build command failed with status: {}", status);
         return Err(eyre!("Build command failed with status: {}", status));
     }
 

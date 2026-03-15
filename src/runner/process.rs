@@ -32,10 +32,12 @@ impl CommandChain {
         }
 
         let mut previous_child: Option<Child> = None;
+        let mut intermediate_children: Vec<Child> = Vec::new();
 
         for (i, command) in self.commands.iter_mut().enumerate() {
             if let Some(mut child) = previous_child.take() {
                 command.stdin(Stdio::from(child.stdout.take().unwrap()));
+                intermediate_children.push(child);
             }
 
             if i == n - 1 {
@@ -47,6 +49,16 @@ impl CommandChain {
             } else {
                 command.stdout(Stdio::piped()).stderr(Stdio::inherit());
                 previous_child = Some(command.spawn().wrap_err("Failed to start command")?);
+            }
+        }
+
+        // Reap intermediate children and surface any failures.
+        for mut child in intermediate_children {
+            let status = child
+                .wait()
+                .wrap_err("Failed to wait on intermediate command")?;
+            if !status.success() {
+                return Err(eyre!("Intermediate command failed with status: {}", status));
             }
         }
 
