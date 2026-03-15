@@ -4,7 +4,7 @@ use chip_size::persistence::SessionState;
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{self, Context, Result};
 use env_logger::Env;
-use log::{debug, error, info};
+use log::{debug, info};
 use std::path::PathBuf;
 
 /// A CLI tool for the matter SDK for flash size checks.
@@ -83,11 +83,7 @@ fn main() -> Result<()> {
         .init();
     color_eyre::install()?;
 
-    if let Err(e) = run_app(&cli) {
-        error!("{:?}", e);
-        return Err(e);
-    }
-    Ok(())
+    run_app(&cli)
 }
 
 /// Resolves the workdir, validates it, saves it for future runs, then dispatches.
