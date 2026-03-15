@@ -1,9 +1,10 @@
-use crate::domain::artifacts::{BUILDS_PATH_PREFIX, BuildArtifacts, build_path, create_tag_items};
+use crate::domain::artifacts::{BUILDS_PATH_PREFIX, AppItem, BuildArtifacts, build_path, create_tag_items};
 use crate::persistence::SessionState;
 use crate::runner::diff_engine::{self, ViewerTool};
-use crate::ui::fuzzy;
+use crate::ui::fuzzy::{self, SelectItem};
 use clap::Parser;
 use eyre::{Result, WrapErr, eyre};
+use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -84,6 +85,32 @@ fn normalize_path_str(path_str: &str, workdir: &Path) -> String {
     }
 }
 
+/// Items presented when picking an application or returning the last compare.
+enum ComparePromptItem {
+    LastCompare {
+        from_file: String,
+        to_file: String,
+        label: String,
+    },
+    App(AppItem),
+}
+
+impl SelectItem for ComparePromptItem {
+    fn display_text(&self) -> String {
+        match self {
+            Self::LastCompare { label, .. } => format!("[Last Compare] {}", label),
+            Self::App(app) => app.display_text(),
+        }
+    }
+
+    fn skim_text(&self) -> String {
+        match self {
+            Self::LastCompare { label, .. } => format!("{}", format!("[Last Compare] {}", label).cyan().bold()),
+            Self::App(app) => app.skim_text(),
+        }
+    }
+}
+
 /// Resolves the `from_file` and `to_file` arguments, prompting the user interactively if necessary.
 fn resolve_compare_args(
     args: &CompareArgs,
@@ -92,42 +119,84 @@ fn resolve_compare_args(
 ) -> Result<ResolvedCompareArgs> {
     let artifacts = BuildArtifacts::find(workdir).wrap_err("Failed to find build artifacts")?;
 
-    let from_file_str = match &args.from_file {
-        Some(f) => normalize_path_str(f, workdir),
-        None => {
-            // ── Select application ────────────────────────────────────────────
-            let app_items = artifacts.app_items();
-            if app_items.is_empty() {
-                return Err(eyre!("No build artifacts found."));
+    let mut from_file_str = args.from_file.as_ref().map(|f| normalize_path_str(f, workdir));
+    let mut to_file_str = args.to_file.as_ref().map(|f| normalize_path_str(f, workdir));
+
+    if from_file_str.is_none() {
+        // ── Select application ────────────────────────────────────────────
+        let app_items = artifacts.app_items();
+        if app_items.is_empty() {
+            return Err(eyre!("No build artifacts found."));
+        }
+
+        let mut prompt_items = Vec::new();
+        let mut has_last_compare = false;
+
+        if to_file_str.is_none()
+            && let (Some(from), Some(to)) = (session.from_file.as_deref(), session.to_file.as_deref()) {
+                let label = match (parse_artifact_path(from), parse_artifact_path(to)) {
+                    (Some((from_tag, from_app)), Some((to_tag, to_app))) => {
+                        if from_app == to_app {
+                            format!("{} ({} vs {})", from_app, from_tag, to_tag)
+                        } else {
+                            format!("{} ({}) vs {} ({})", from_app, from_tag, to_app, to_tag)
+                        }
+                    }
+                    _ => format!("{} vs {}", from, to),
+                };
+                prompt_items.push(ComparePromptItem::LastCompare {
+                    from_file: from.to_string(),
+                    to_file: to.to_string(),
+                    label,
+                });
+                has_last_compare = true;
             }
 
-            let default_app_index = session
-                .from_file
-                .as_deref()
-                .and_then(parse_artifact_path)
-                .and_then(|(_, app_path)| app_items.iter().position(|i| i.path == app_path));
+        let default_app_index = session
+            .from_file
+            .as_deref()
+            .and_then(parse_artifact_path)
+            .and_then(|(_, app_path)| app_items.iter().position(|i| i.path == app_path))
+            .map(|idx| if has_last_compare { idx + 1 } else { idx });
 
-            let selected_app = fuzzy::select("Select application", app_items, default_app_index)
-                .wrap_err("Failed to select application")?;
-
-            // ── Select baseline tag ───────────────────────────────────────────
-            let tag_items = artifacts
-                .tag_items_for_app(&selected_app.path)
-                .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app.path))?;
-
-            let default_tag_index = session
-                .from_file
-                .as_deref()
-                .and_then(parse_artifact_path)
-                .filter(|(_, app)| app == &selected_app.path)
-                .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
-
-            let selected_tag = fuzzy::select("Select BASELINE tag", tag_items, default_tag_index)
-                .wrap_err("Failed to select baseline tag")?;
-
-            build_path(&selected_tag.name, &selected_app.path)
+        for app in app_items {
+            prompt_items.push(ComparePromptItem::App(app));
         }
-    };
+
+        let selected = fuzzy::select(
+            if has_last_compare { "Select application (or Last Compare)" } else { "Select application" },
+            prompt_items,
+            if has_last_compare { Some(0) } else { default_app_index },
+        )
+        .wrap_err("Failed to select application")?;
+
+        match selected {
+            ComparePromptItem::LastCompare { from_file, to_file, .. } => {
+                from_file_str = Some(from_file);
+                to_file_str = Some(to_file);
+            }
+            ComparePromptItem::App(selected_app) => {
+                // ── Select baseline tag ───────────────────────────────────────────
+                let tag_items = artifacts
+                    .tag_items_for_app(&selected_app.path)
+                    .ok_or_else(|| eyre!("Failed to get tags for app: {}", selected_app.path))?;
+
+                let default_tag_index = session
+                    .from_file
+                    .as_deref()
+                    .and_then(parse_artifact_path)
+                    .filter(|(_, app)| app == &selected_app.path)
+                    .and_then(|(tag, _)| tag_items.iter().position(|i| i.name == tag));
+
+                let selected_tag = fuzzy::select("Select BASELINE tag", tag_items, default_tag_index)
+                    .wrap_err("Failed to select baseline tag")?;
+
+                from_file_str = Some(build_path(&selected_tag.name, &selected_app.path));
+            }
+        }
+    }
+
+    let from_file_str = from_file_str.unwrap();
 
     let (from_tag, from_app_path) = parse_artifact_path(&from_file_str).ok_or_else(|| {
         eyre!(
@@ -136,8 +205,8 @@ fn resolve_compare_args(
         )
     })?;
 
-    let to_file_str = match &args.to_file {
-        Some(f) => normalize_path_str(f, workdir),
+    let to_file_str = match to_file_str {
+        Some(f) => f,
         None => {
             // ── Select comparison tag ─────────────────────────────────────────
             // Build tag items excluding the already-chosen baseline tag, so the
