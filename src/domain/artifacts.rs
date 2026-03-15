@@ -118,7 +118,10 @@ fn extract_artifact(path: &Path, builds_dir: &Path) -> Option<(String, String, S
         return None;
     }
 
-    let relative_path = path.strip_prefix(builds_dir).ok()?;
+    let relative_path = path.strip_prefix(builds_dir).ok().or_else(|| {
+        debug!("Failed to strip prefix from {}", path.display());
+        None
+    })?;
     let components: Vec<&str> = relative_path
         .iter()
         .map(|s| s.to_str().unwrap_or(""))
