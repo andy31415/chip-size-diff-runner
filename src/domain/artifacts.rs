@@ -20,7 +20,11 @@ pub struct AppItem {
 
 impl AppItem {
     fn csv_tags(&self) -> String {
-        self.tag_names.iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+        self.tag_names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -121,12 +125,17 @@ fn extract_artifact(path: &Path, builds_dir: &Path) -> Option<(String, String, S
         .collect();
 
     if components.len() <= 1 {
-        debug!("Skipping file with unexpected path structure: {}", path.display());
+        debug!(
+            "Skipping file with unexpected path structure: {}",
+            path.display()
+        );
         return None;
     }
 
     let tag = components[0].to_string();
-    let app_path = PathBuf::from_iter(&components[1..]).to_string_lossy().to_string();
+    let app_path = PathBuf::from_iter(&components[1..])
+        .to_string_lossy()
+        .to_string();
     let mtime = fs::metadata(path)
         .and_then(|m| m.modified())
         .unwrap_or(SystemTime::UNIX_EPOCH);
