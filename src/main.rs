@@ -1,7 +1,7 @@
 use branch_diff::commands::build::{self, BuildArgs};
 use branch_diff::commands::compare::{self, CompareArgs};
 use branch_diff::persistence::SessionState;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{self, Context, Result};
 use env_logger::Env;
 use log::{debug, error, info};
@@ -26,10 +26,35 @@ struct Cli {
     workdir: Option<String>,
 
     /// Set the logging level.
-    ///
-    /// Options: off, error, warn, info, debug, trace
-    #[arg(short, long, global = true, default_value = "info")]
-    log_level: String,
+    #[arg(short, long, global = true, default_value_t = LogLevel::Info, ignore_case = true)]
+    log_level: LogLevel,
+}
+
+/// Log verbosity levels accepted by `--log-level`.
+#[derive(ValueEnum, Debug, Clone, Default)]
+#[value(rename_all = "lowercase")]
+enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            LogLevel::Off => "off",
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        };
+        f.write_str(s)
+    }
 }
 
 /// Represents the available subcommands for the CLI.
@@ -52,7 +77,8 @@ fn hardcoded_default_workdir() -> String {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    env_logger::Builder::from_env(Env::default().default_filter_or(&cli.log_level)).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or(cli.log_level.to_string()))
+        .init();
     color_eyre::install()?;
 
     if let Err(e) = run_app(&cli) {
