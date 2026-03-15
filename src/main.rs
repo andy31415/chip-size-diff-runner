@@ -7,7 +7,7 @@ use env_logger::Env;
 use log::{debug, error, info};
 use std::path::PathBuf;
 
-/// A CLI tool to build and compare application binaries across different tags.
+/// A CLI tool for the matter SDK for flash size checks.
 ///
 /// This tool helps automate the process of building a target application
 /// at different source code revisions (identified by jj tags) and then
