@@ -61,8 +61,10 @@ impl std::fmt::Display for LogLevel {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Build the application at a specific tag.
+    #[command(visible_alias = "b")]
     Build(BuildArgs),
     /// Compare two build artifacts.
+    #[command(visible_alias = "c")]
     Compare(CompareArgs),
 }
 
