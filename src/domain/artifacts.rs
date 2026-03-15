@@ -4,17 +4,24 @@ use eyre::{Result, WrapErr};
 use goblin::elf::Elf;
 use log::debug;
 use owo_colors::OwoColorize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use walkdir::WalkDir;
 
 /// A build artifact application path with its associated tags.
+#[derive(Default)]
 pub struct AppItem {
     pub path: String,
-    pub tag_names: Vec<String>,
+    pub tag_names: BTreeSet<String>, // sorted alphabetically
     pub column_width: usize,
+}
+
+impl AppItem {
+    fn csv_tags(&self) -> String {
+        self.tag_names.iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+    }
 }
 
 impl SelectItem for AppItem {
@@ -22,7 +29,7 @@ impl SelectItem for AppItem {
         format!(
             "{:<width$} (Tags: {})",
             self.path,
-            self.tag_names.join(", "),
+            self.csv_tags(),
             width = self.column_width
         )
     }
@@ -31,7 +38,7 @@ impl SelectItem for AppItem {
         format!(
             "{:<width$} {}",
             self.path,
-            format!("(Tags: {})", self.tag_names.join(", ")).green(),
+            format!("(Tags: {})", self.csv_tags()).green(),
             width = self.column_width
         )
     }
@@ -337,5 +344,22 @@ mod tests {
         let items = create_tag_items(&entries);
         let item = &items[0];
         assert_eq!(item.display_text(), strip_ansi_codes(&item.skim_text()));
+    }
+
+    #[test]
+    fn test_csv_tags() {
+        let mut item = AppItem::default();
+
+        assert_eq!(item.csv_tags(), "");
+
+        item.tag_names = BTreeSet::from_iter(vec!["a".into(), "b".into(), "c".into()]);
+        assert_eq!(item.csv_tags(), "a, b, c");
+
+        item.tag_names = BTreeSet::from_iter(vec!["test".into()]);
+        assert_eq!(item.csv_tags(), "test");
+
+        // we alpha-sort the tag names
+        item.tag_names = BTreeSet::from_iter(vec!["test".into(), "another".into()]);
+        assert_eq!(item.csv_tags(), "another, test");
     }
 }
