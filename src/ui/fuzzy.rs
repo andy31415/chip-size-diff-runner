@@ -110,7 +110,7 @@ fn fuzzy_select(prompt: &str, items: Vec<String>) -> Result<String> {
 /// # Examples
 ///
 /// ```
-/// use branch_diff::ui::fuzzy::strip_ansi_codes;
+/// use chip_size::ui::fuzzy::strip_ansi_codes;
 /// assert_eq!(strip_ansi_codes("hello"), "hello");
 /// assert_eq!(strip_ansi_codes("\x1b[2mhello\x1b[0m"), "hello");
 /// assert_eq!(strip_ansi_codes("tag  \x1b[32m(2024-01-15)\x1b[0m"), "tag  (2024-01-15)");

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 const MAX_RECENT_APPLICATIONS: usize = 10;
 
-/// Persistent per-user session state stored in `~/.cache/branch_diff/session.toml`.
+/// Persistent per-user session state stored in `~/.cache/chip-size/session.toml`.
 ///
 /// All fields are optional so the file can be absent or partially written
 /// without breaking anything — missing fields deserialize to `None`/empty.
@@ -113,7 +113,7 @@ impl SessionState {
     fn cache_path() -> Result<PathBuf> {
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| eyre!("Could not find cache directory"))?
-            .join("branch_diff");
+            .join("chip-size");
         fs::create_dir_all(&cache_dir).wrap_err("Failed to create cache directory")?;
         Ok(cache_dir.join("session.toml"))
     }

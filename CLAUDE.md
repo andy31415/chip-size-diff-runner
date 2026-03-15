@@ -14,7 +14,7 @@ cargo fmt                    # format
 
 ## Architecture
 
-`branch_diff` is a Rust CLI tool designed to build and compare binaries (specifically for the [connectedhomeip](https://github.com/project-chip/connectedhomeip) project) across different source revisions (jj bookmarks/tags) for size and difference analysis.
+`chip-size` is a Rust CLI tool designed to build and compare binaries (specifically for the [connectedhomeip](https://github.com/project-chip/connectedhomeip) project) across different source revisions (jj bookmarks/tags) for size and difference analysis.
 
 ### Project Structure
 
@@ -29,7 +29,7 @@ cargo fmt                    # format
     - `process.rs`: `CommandChain` utility for command piping.
 - **`src/ui/`**: User interface components.
     - `fuzzy.rs`: Generic `skim` wrapper and the `SelectItem` trait for interactive selection.
-- **`src/persistence.rs`**: Manages `SessionState` (stored in `~/.cache/branch_diff/session.toml`).
+- **`src/persistence.rs`**: Manages `SessionState` (stored in `~/.cache/chip-size/session.toml`).
 
 ### Data Flow
 

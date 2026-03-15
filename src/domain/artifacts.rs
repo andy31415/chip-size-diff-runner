@@ -211,7 +211,7 @@ impl BuildArtifacts {
 /// # Examples
 ///
 /// ```
-/// use branch_diff::domain::artifacts::build_path;
+/// use chip_size::domain::artifacts::build_path;
 /// assert_eq!(build_path("v1.0", "chip-tool"), "out/branch-builds/v1.0/chip-tool");
 /// assert_eq!(build_path("my-tag", "sub/dir/app"), "out/branch-builds/my-tag/sub/dir/app");
 /// ```

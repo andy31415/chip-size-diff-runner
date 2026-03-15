@@ -1,6 +1,6 @@
-use branch_diff::commands::build::{self, BuildArgs};
-use branch_diff::commands::compare::{self, CompareArgs};
-use branch_diff::persistence::SessionState;
+use chip_size::commands::build::{self, BuildArgs};
+use chip_size::commands::compare::{self, CompareArgs};
+use chip_size::persistence::SessionState;
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::{self, Context, Result};
 use env_logger::Env;

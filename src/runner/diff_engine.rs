@@ -18,7 +18,7 @@ const CSVLENS_DEFAULT_COLUMNS: &str = "Function|Size$|Type";
 /// # Examples
 ///
 /// ```
-/// use branch_diff::runner::diff_engine::ViewerTool;
+/// use chip_size::runner::diff_engine::ViewerTool;
 /// assert!("csvlens".parse::<ViewerTool>().is_ok());
 /// assert!("custom:grep chip".parse::<ViewerTool>().is_ok());
 /// assert!("unknown".parse::<ViewerTool>().is_err());

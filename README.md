@@ -1,10 +1,10 @@
-# branch_diff
+# chip-size
 
 A CLI tool to automate building and comparing [connectedhomeip](https://github.com/project-chip/connectedhomeip) (Matter) application binaries across different source revisions (bookmarks/tags), primarily for binary size analysis.
 
 ## Overview
 
-`branch_diff` streamlines the workflow of checking how code changes affect binary size:
+`chip-size` streamlines the workflow of checking how code changes affect binary size:
 1.  **Build**: Automatically resolves the current `jj` bookmark or commit, builds the target (on Host or via Podman), and archives the ELF artifact.
 2.  **Compare**: Interactively selects two versions of an application and runs the project's size diffing tools, optionally piping to `csvlens` for a rich TUI experience.
 
@@ -25,7 +25,7 @@ cargo install --path .
 ## Usage
 
 ```bash
-branch_diff [OPTIONS] <COMMAND>
+chip-size [OPTIONS] <COMMAND>
 ```
 
 ### Global Options
@@ -40,7 +40,7 @@ branch_diff [OPTIONS] <COMMAND>
 ### `build` — Build an application at a tag
 
 ```bash
-branch_diff build [OPTIONS] [APPLICATION]
+chip-size build [OPTIONS] [APPLICATION]
 ```
 
 Builds the application and stores it in `out/branch-builds/<TAG>/<APP_PATH>`.
@@ -67,7 +67,7 @@ Builds the application and stores it in `out/branch-builds/<TAG>/<APP_PATH>`.
 ### `compare` — Compare two build artifacts
 
 ```bash
-branch_diff compare [OPTIONS] [FROM_FILE] [TO_FILE] [-- EXTRA_DIFF_ARGS...]
+chip-size compare [OPTIONS] [FROM_FILE] [TO_FILE] [-- EXTRA_DIFF_ARGS...]
 ```
 
 Compares two ELF binaries using `scripts/tools/binary_elf_size_diff.py`.
@@ -98,7 +98,7 @@ If paths are omitted, the tool scans `out/branch-builds/` for ELF files and prov
 
 ## Configuration & Persistence
 
-`branch_diff` maintains state in `~/.cache/branch_diff/session.toml`.
+`chip-size` maintains state in `~/.cache/chip-size/session.toml`.
 
 Stored data includes:
 -   **Last Workdir**: Used as the default if `-w` is not provided.

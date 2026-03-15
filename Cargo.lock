@@ -198,28 +198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "branch_diff"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "color-eyre",
- "dialoguer",
- "dirs",
- "env_logger",
- "eyre",
- "goblin",
- "log",
- "owo-colors",
- "serde",
- "skim",
- "tempfile",
- "toml",
- "walkdir",
- "which 6.0.3",
-]
-
-[[package]]
 name = "bstr"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -294,6 +272,28 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "rand_core 0.10.0",
+]
+
+[[package]]
+name = "chip_size"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "color-eyre",
+ "dialoguer",
+ "dirs",
+ "env_logger",
+ "eyre",
+ "goblin",
+ "log",
+ "owo-colors",
+ "serde",
+ "skim",
+ "tempfile",
+ "toml",
+ "walkdir",
+ "which 6.0.3",
 ]
 
 [[package]]
