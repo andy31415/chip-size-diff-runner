@@ -1,6 +1,6 @@
 use crate::ui::fuzzy::SelectItem;
 use chrono::{DateTime, Local};
-use eyre::{Result, WrapErr};
+use eyre::Result;
 use goblin::elf::Elf;
 use log::debug;
 use owo_colors::OwoColorize;
@@ -98,6 +98,43 @@ pub fn create_tag_items(entries: &[(String, SystemTime)]) -> Vec<TagItem> {
 /// `build_path()` and `parse_artifact_path()` in the compare command.
 pub const BUILDS_PATH_PREFIX: &str = "out/branch-builds";
 
+/// Tries to extract artifact metadata from a path. Returns `None` for any file
+/// that should be skipped (non-ELF, unreadable, unexpected path structure).
+fn extract_artifact(path: &Path, builds_dir: &Path) -> Option<(String, String, SystemTime)> {
+    let buffer = match fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            debug!("Error reading file {}: {}", path.display(), e);
+            return None;
+        }
+    };
+
+    if Elf::parse(&buffer).is_err() {
+        debug!("Skipping non-ELF file: {}", path.display());
+        return None;
+    }
+
+    let relative_path = path.strip_prefix(builds_dir).ok()?;
+    let components: Vec<&str> = relative_path
+        .iter()
+        .map(|s| s.to_str().unwrap_or(""))
+        .collect();
+
+    if components.len() <= 1 {
+        debug!("Skipping file with unexpected path structure: {}", path.display());
+        return None;
+    }
+
+    let tag = components[0].to_string();
+    let app_path = PathBuf::from_iter(&components[1..]).to_string_lossy().to_string();
+    let mtime = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+
+    debug!("Found ELF artifact: {}", path.display());
+    Some((tag, app_path, mtime))
+}
+
 /// The collection of ELF build artifacts found under `out/branch-builds/`.
 pub struct BuildArtifacts {
     /// app_path → Vec<(tag_name, modified_time)>, sorted newest-first.
@@ -115,52 +152,19 @@ impl BuildArtifacts {
             return Ok(BuildArtifacts { apps });
         }
 
-        for entry in WalkDir::new(&builds_dir).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                let path = entry.path();
-                match fs::read(path) {
-                    Ok(buffer) => {
-                        if Elf::parse(&buffer).is_ok() {
-                            let relative_path = path
-                                .strip_prefix(&builds_dir)
-                                .wrap_err("Failed to strip prefix from path")?;
-                            let components: Vec<&str> = relative_path
-                                .iter()
-                                .map(|s| s.to_str().unwrap_or(""))
-                                .collect();
-
-                            if components.len() > 1 {
-                                let tag = components[0].to_string();
-                                let app_path = PathBuf::from_iter(&components[1..])
-                                    .to_string_lossy()
-                                    .to_string();
-                                let mtime = fs::metadata(path)
-                                    .and_then(|m| m.modified())
-                                    .unwrap_or(SystemTime::UNIX_EPOCH);
-                                let entries = apps.entry(app_path).or_default();
-                                if let Some(existing) = entries.iter_mut().find(|(t, _)| t == &tag)
-                                {
-                                    if mtime > existing.1 {
-                                        existing.1 = mtime;
-                                    }
-                                } else {
-                                    entries.push((tag, mtime));
-                                }
-                                debug!("Found ELF artifact: {}", path.display());
-                            } else {
-                                debug!(
-                                    "Skipping file with unexpected path structure: {}",
-                                    path.display()
-                                );
-                            }
-                        } else {
-                            debug!("Skipping non-ELF file: {}", path.display());
-                        }
-                    }
-                    Err(e) => {
-                        debug!("Error reading file {}: {}", path.display(), e);
-                    }
+        for (tag, app_path, mtime) in WalkDir::new(&builds_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| extract_artifact(e.path(), &builds_dir))
+        {
+            let entries = apps.entry(app_path).or_default();
+            if let Some(existing) = entries.iter_mut().find(|(t, _)| t == &tag) {
+                if mtime > existing.1 {
+                    existing.1 = mtime;
                 }
+            } else {
+                entries.push((tag, mtime));
             }
         }
 
