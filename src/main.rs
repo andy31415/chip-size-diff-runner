@@ -83,14 +83,6 @@ fn main() -> Result<()> {
         .init();
     color_eyre::install()?;
 
-    run_app(&cli)
-}
-
-/// Resolves the workdir, validates it, saves it for future runs, then dispatches.
-///
-/// The session is loaded once here and passed to the command handler so handlers
-/// don't need to load it a second time.
-fn run_app(cli: &Cli) -> Result<()> {
     let mut session = SessionState::load().wrap_err("Failed to load session state")?;
 
     let workdir_str = cli
