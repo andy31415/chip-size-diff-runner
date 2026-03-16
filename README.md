@@ -17,7 +17,12 @@ Ensure you have the following dependencies installed:
 - [visidata](https://www.visidata.org/) or [csvlens](https://github.com/pvolok/csvlens) (optional, for enhanced comparison viewing)
 - [Podman](https://podman.io/) (if building non-linux-x64 targets)
 
-Build and install the binary:
+Install directly from GitHub:
+```bash
+cargo install --git https://github.com/andy31415/chip-size-diff-runner.git
+```
+
+Or, if you have a local clone, build and install from the source tree:
 ```bash
 cargo install --path .
 ```
