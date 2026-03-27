@@ -1,7 +1,5 @@
-use crate::runner::definitions::ElfParser;
-use crate::runner::goblin_parser::GoblinParser;
-use crate::runner::native_parser::NativeParser;
-use crate::runner::nm_parser::NmParser;
+use crate::runner::elf_diff::ElfParser;
+use crate::runner::parsers::{GoblinParser, NativeParser, NmParser};
 use crate::runner::process::CommandChain;
 use crate::runner::symbol_diff;
 use eyre::{Result, eyre};

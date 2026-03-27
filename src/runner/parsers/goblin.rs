@@ -1,19 +1,21 @@
-use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
+use crate::runner::elf_diff::{ElfParser, Symbol, SymbolKind};
 use crate::runner::symbol_diff::demangle_name;
 use eyre::{Result, WrapErr, eyre};
-use std::path::Path;
-use std::fs;
 use goblin::elf;
 use goblin::elf::sym;
+use std::fs;
+use std::path::Path;
 
 pub struct GoblinParser;
 
 impl ElfParser for GoblinParser {
     fn get_symbols(&self, path: &Path) -> Result<Vec<Symbol>> {
-        let path_str = path.to_str().ok_or_else(|| eyre!("Invalid path: {:?}", path))?;
-        let buffer = fs::read(path)
-            .wrap_err_with(|| format!("Failed to read ELF file: {}", path_str))?;
-        
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| eyre!("Invalid path: {:?}", path))?;
+        let buffer =
+            fs::read(path).wrap_err_with(|| format!("Failed to read ELF file: {}", path_str))?;
+
         let elf = elf::Elf::parse(&buffer)
             .map_err(|e| eyre!("Failed to parse ELF file {}: {}", path_str, e))?;
 
@@ -47,7 +49,7 @@ impl ElfParser for GoblinParser {
                     if sym.st_shndx == elf::section_header::SHN_COMMON as usize {
                         // This is a common block (BSS), keep it, size will be from section
                     } else if kind != SymbolKind::Bss { // Non-BSS, non-Code, zero size can be skipped
-                         // continue; // Re-evaluate if skipping is always correct
+                        // continue; // Re-evaluate if skipping is always correct
                     }
                 }
 

@@ -1,4 +1,4 @@
-use crate::runner::definitions::{ChangeType, DiffResult, Symbol};
+use crate::runner::elf_diff::{ChangeType, DiffResult, Symbol};
 use cpp_demangle;
 use csv::WriterBuilder;
 use eyre::Result;

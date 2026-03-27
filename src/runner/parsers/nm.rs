@@ -1,4 +1,4 @@
-use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
+use crate::runner::elf_diff::{ElfParser, Symbol, SymbolKind};
 use crate::runner::symbol_diff::demangle_name;
 use eyre::{Result, WrapErr, eyre};
 use std::path::Path;
