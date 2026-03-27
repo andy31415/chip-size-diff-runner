@@ -2,6 +2,7 @@ use crate::runner::definitions::{Symbol, DiffResult, ChangeType};
 use eyre::Result;
 use std::collections::HashMap;
 use cpp_demangle;
+use csv::WriterBuilder;
 
 pub fn demangle_name(name: &str) -> String {
     match cpp_demangle::Symbol::new(name.as_bytes()) {
@@ -55,27 +56,42 @@ pub fn generate_diff_csv(from_symbols: Vec<Symbol>, to_symbols: Vec<Symbol>) -> 
         });
     }
 
-    results.sort_by(|a, b| b.diff.cmp(&a.diff));
+    results.sort_by(|a, b| a.diff.cmp(&b.diff));
 
-    let mut csv_output = String::new();
-    csv_output.push_str("Change,Type,Symbol,Diff,Base Size,Size
-");
+    let mut wtr = WriterBuilder::new().from_writer(vec![]);
+    wtr.write_record(&["Change", "Type", "Diff", "Symbol", "Base Size", "Size"])?;
 
-    for result in results {
-        let escaped_name = result.symbol_name.replace('"', r#"""#);
-        csv_output.push_str(&format!(
-            r#"{},{},"{}",{},{},{}
-"#,
-            result.change_type,
-            result.symbol_kind,
-            escaped_name,
-            result.diff,
-            result.base_size,
-            result.size
-        ));
+    let mut total_diff: i64 = 0;
+    let mut total_base_size: usize = 0;
+    let mut total_size: usize = 0;
+
+    for result in &results {
+        wtr.write_record(&[
+            result.change_type.to_string(),
+            result.symbol_kind.to_string(),
+            result.diff.to_string(),
+            result.symbol_name.clone(),
+            result.base_size.to_string(),
+            result.size.to_string(),
+        ])?;
+        total_diff += result.diff;
+        total_base_size += result.base_size;
+        total_size += result.size;
     }
 
-    Ok(csv_output)
+    // Add TOTAL row
+    wtr.write_record(&[
+        "TOTAL".to_string(),
+        "".to_string(),
+        format!("{:+#}", total_diff),
+        "".to_string(),
+        total_base_size.to_string(),
+        total_size.to_string(),
+    ])?;
+
+    wtr.flush()?;
+    let data = String::from_utf8(wtr.into_inner()?)?;
+    Ok(data)
 }
 
 #[cfg(test)]
