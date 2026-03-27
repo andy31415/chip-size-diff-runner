@@ -101,6 +101,17 @@ If paths are omitted, the tool scans `out/branch-builds/` for ELF files and prov
 
 ---
 
+**Diff Engine Options** (`--diff-engine`):
+
+| Value | Description |
+|---|---|
+| `native` | **(Default)** Uses a native Rust implementation with the `elf` crate to parse symbols. Recommended. |
+| `nm` | Uses the system's `nm` tool to extract symbols. Output format may vary. |
+| `goblin` | Uses the `goblin` crate for ELF parsing. |
+| `script` | Uses the original Python script (`scripts/tools/binary_elf_size_diff.py`) from the Matter SDK. Requires `uv` to be installed. |
+
+---
+
 ## Configuration & Persistence
 
 `chip-size` maintains state in `~/.cache/chip-size/session.toml`.

@@ -1,3 +1,5 @@
+//! ELF symbol parser using the `elf` crate.
+
 use crate::runner::elf_diff::{ElfParser, Symbol, SymbolKind};
 use crate::runner::symbol_diff::demangle_name;
 use elf::ElfBytes;

@@ -1,3 +1,5 @@
+//! ELF symbol parser using the system's `nm` tool.
+
 use crate::runner::elf_diff::{ElfParser, Symbol, SymbolKind};
 use crate::runner::symbol_diff::demangle_name;
 use eyre::{Result, WrapErr, eyre};
@@ -6,6 +8,18 @@ use std::process::Command;
 
 pub struct NmParser {
     pub nm_path: String,
+}
+
+// Create from a character as typically seen in `nm` output
+fn from_type_ch(c: char) -> SymbolKind {
+    match c.to_ascii_lowercase() {
+        't' => SymbolKind::Code,
+        'd' | 'r' | 'g' | 's' | 'a' => SymbolKind::Data,
+        'b' | 'c' => SymbolKind::Bss,
+        'w' => SymbolKind::Other, // Weak symbol
+        'u' => SymbolKind::Other, // Undefined symbol
+        _ => SymbolKind::Other,
+    }
 }
 
 impl Default for NmParser {
@@ -59,28 +73,16 @@ stderr: {}",
                 .wrap_err_with(|| format!("Failed to parse size from nm line: {}", line))?;
 
             if size == 0 {
-                continue; // Skip zero-sized symbols
+                continue;
             }
 
             let symbol_type = parts[2].chars().next().unwrap_or('?');
             let name = parts[3];
 
-            let kind = match symbol_type {
-                'T' | 't' => SymbolKind::Code,
-                'D' | 'd' => SymbolKind::Data,
-                'B' | 'b' => SymbolKind::Bss,
-                'R' | 'r' => SymbolKind::RoData,
-                'W' | 'w' => SymbolKind::Weak,
-                'U' => SymbolKind::Undefined,
-                _ => SymbolKind::Other,
-            };
-
-            let demangled = demangle_name(name);
-
             symbols.push(Symbol {
                 name: name.to_string(),
-                demangled,
-                kind,
+                demangled: demangle_name(name),
+                kind: from_type_ch(symbol_type),
                 size,
                 address: Some(address),
             });
@@ -88,5 +90,23 @@ stderr: {}",
 
         tracing::debug!("Found {} symbols in {:?} (nm)", symbols.len(), path);
         Ok(symbols)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_type_ch() {
+        assert_eq!(from_type_ch('T'), SymbolKind::Code);
+        assert_eq!(from_type_ch('t'), SymbolKind::Code);
+        assert_eq!(from_type_ch('D'), SymbolKind::Data);
+        assert_eq!(from_type_ch('r'), SymbolKind::Data);
+        assert_eq!(from_type_ch('B'), SymbolKind::Bss);
+        assert_eq!(from_type_ch('c'), SymbolKind::Bss);
+        assert_eq!(from_type_ch('W'), SymbolKind::Other);
+        assert_eq!(from_type_ch('U'), SymbolKind::Other);
+        assert_eq!(from_type_ch('?'), SymbolKind::Other);
     }
 }
