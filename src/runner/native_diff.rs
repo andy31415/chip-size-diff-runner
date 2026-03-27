@@ -115,13 +115,20 @@ impl fmt::Display for ChangeType {
     }
 }
 
+struct DiffResult {
+    change_type: ChangeType,
+    symbol_type: SymbolType,
+    symbol_name: String,
+    diff: i64,
+    base_size: u64,
+    size: u64,
+}
+
 pub fn run_native_diff(from_path: &Path, to_path: &Path) -> Result<String> {
     let from_symbols = parse_elf(from_path)?;
     let to_symbols = parse_elf(to_path)?;
 
-    let mut csv_output = String::new();
-    csv_output.push_str("Change,Type,Symbol,Diff,Base Size,Size
-");
+    let mut results: Vec<DiffResult> = Vec::new();
 
     let mut all_keys: Vec<&String> = from_symbols.keys().collect();
     for key in to_symbols.keys() {
@@ -153,15 +160,36 @@ pub fn run_native_diff(from_path: &Path, to_path: &Path) -> Result<String> {
 
         let symbol = from_sym.or(to_sym).unwrap(); // Safe to unwrap here
 
-        csv_output.push_str(&format!(
-            "{},{},\"{}\",{},{},{}\n",
+        results.push(DiffResult {
             change_type,
-            symbol.type_,
-            symbol.demangled.replace('"', "\"\""), // Escape quotes for CSV
+            symbol_type: symbol.type_,
+            symbol_name: symbol.demangled.clone(),
             diff,
-            size1,
-            size2
-        ));
+            base_size: size1,
+            size: size2,
+        });
+    }
+
+    // Sort results by diff in descending order
+    results.sort_by(|a, b| b.diff.cmp(&a.diff));
+
+    let mut csv_output = String::new();
+    csv_output.push_str("Change,Type,Symbol,Diff,Base Size,Size
+");
+
+    for result in results {
+        let escaped_name = result.symbol_name.replace('"', r#"""#);
+        let line = format!(
+            r#"{},{},"{}",{},{},{}
+"#,
+            result.change_type,
+            result.symbol_type,
+            escaped_name,
+            result.diff,
+            result.base_size,
+            result.size
+        );
+        csv_output.push_str(&line);
     }
 
     Ok(csv_output)

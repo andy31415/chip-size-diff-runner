@@ -1,6 +1,8 @@
 use crate::runner::process::CommandChain;
-use super::native_diff;
-use super::nm_diff;
+use crate::runner::definitions::{ElfParser};
+use crate::runner::common;
+use crate::runner::native_parser::NativeParser;
+use crate::runner::nm_parser::NmParser;
 use eyre::{Result, eyre};
 use log::{debug, info};
 use std::path::Path;
@@ -77,9 +79,7 @@ impl std::str::FromStr for ViewerTool {
                 let rest = s.trim_start_matches("custom:");
                 let parts: Vec<String> = rest.split_whitespace().map(str::to_string).collect();
                 if parts.is_empty() {
-                    Err(eyre!(
-                        "custom: viewer requires a program name, e.g. custom:myviewer or custom:\"grep chip\""
-                    ))
+                    Err(eyre!(r#"custom: viewer requires a program name, e.g. custom:myviewer or custom:"grep chip""#))
                 } else {
                     Ok(Self::Custom(parts))
                 }
@@ -120,8 +120,7 @@ enum ResolvedViewer {
     Custom(Vec<String>),
 }
 
-/// Executes the size difference script to compare the two artifact files.
-///
+/// Runs the comparison between two artifact files based on the selected engine.
 pub fn run_diff(
     from_path: &Path,
     to_path: &Path,
@@ -145,17 +144,24 @@ pub fn run_diff(
     );
 
     match diff_engine {
-        DiffEngine::Script => run_script_diff(from_path, to_path, workdir, extra_args, viewer),
+        DiffEngine::Script => run_script_diff(from_path, to_path, workdir, extra_args, viewer)?,
         DiffEngine::Nm => {
-            let csv_data = nm_diff::run_nm_diff(from_path, to_path)?;
-            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)
+            let parser = NmParser::default();
+            let from_symbols = parser.get_symbols(from_path)?;
+            let to_symbols = parser.get_symbols(to_path)?;
+            let csv_data = common::generate_diff_csv(from_symbols, to_symbols)?;
+            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
         }
         DiffEngine::Native => {
-            let csv_data = native_diff::run_native_diff(from_path, to_path)?;
-            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)
+            let parser = NativeParser;
+            let from_symbols = parser.get_symbols(from_path)?;
+            let to_symbols = parser.get_symbols(to_path)?;
+            let csv_data = common::generate_diff_csv(from_symbols, to_symbols)?;
+            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
         }
         DiffEngine::Goblin => unimplemented!("Goblin diff engine not yet implemented"),
     }
+    Ok(())
 }
 
 fn pipe_to_viewer(input: &[u8], workdir: &Path, viewer: &ViewerTool) -> Result<()> {
@@ -194,7 +200,9 @@ fn pipe_to_viewer(input: &[u8], workdir: &Path, viewer: &ViewerTool) -> Result<(
         let output = child.wait_with_output()?;
         if !output.status.success() {
             return Err(eyre!(
-                "Viewer command failed with status {}:\n{}\n{}",
+                "Viewer command failed with status {}:
+STDOUT: {}
+STDERR: {}",
                 output.status,
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
@@ -230,7 +238,6 @@ fn run_script_diff(
         diff_cmd.args(extra_args).arg(to_path).arg(from_path);
         CommandChain::new(diff_cmd)
     };
-
     debug!("Executing: {:?}", chain);
     chain.execute()
 }
