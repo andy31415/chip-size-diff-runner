@@ -1,4 +1,6 @@
 use crate::runner::process::CommandChain;
+use super::native_diff;
+use super::nm_diff;
 use eyre::{Result, eyre};
 use log::{debug, info};
 use std::path::Path;
@@ -9,6 +11,32 @@ use which::which;
 /// useful and waste horizontal space; `Function`, `Type`, and `Size` cover most
 /// review workflows.
 const CSVLENS_DEFAULT_COLUMNS: &str = "Function|Size$|Type";
+
+/// The diff engine to use for comparison.
+#[derive(Debug, PartialEq)]
+pub enum DiffEngine {
+    Script,
+    Nm,
+    Native,
+    Goblin,
+}
+
+impl std::str::FromStr for DiffEngine {
+    type Err = eyre::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "script" => Ok(Self::Script),
+            "nm" => Ok(Self::Nm),
+            "native" => Ok(Self::Native),
+            "goblin" => Ok(Self::Goblin),
+            other => Err(eyre!(
+                "Unknown diff engine '{}'. Valid options: script, nm, native, goblin",
+                other
+            )),
+        }
+    }
+}
 
 /// The viewer tool to pipe CSV output to.
 ///
@@ -94,11 +122,11 @@ enum ResolvedViewer {
 
 /// Executes the size difference script to compare the two artifact files.
 ///
-/// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
 pub fn run_diff(
     from_path: &Path,
     to_path: &Path,
     workdir: &Path,
+    diff_engine: &DiffEngine,
     extra_args: &[String],
     viewer: &ViewerTool,
 ) -> Result<()> {
@@ -110,11 +138,84 @@ pub fn run_diff(
     }
 
     info!(
-        "Comparing {} and {}",
+        "Comparing {} and {} using {:?}",
         from_path.display(),
-        to_path.display()
+        to_path.display(),
+        diff_engine
     );
 
+    match diff_engine {
+        DiffEngine::Script => run_script_diff(from_path, to_path, workdir, extra_args, viewer),
+        DiffEngine::Nm => {
+            let csv_data = nm_diff::run_nm_diff(from_path, to_path)?;
+            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)
+        }
+        DiffEngine::Native => {
+            let csv_data = native_diff::run_native_diff(from_path, to_path)?;
+            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)
+        }
+        DiffEngine::Goblin => unimplemented!("Goblin diff engine not yet implemented"),
+    }
+}
+
+fn pipe_to_viewer(input: &[u8], workdir: &Path, viewer: &ViewerTool) -> Result<()> {
+    let resolved = viewer.resolve();
+    let command = match resolved {
+        ResolvedViewer::Visidata => {
+            let mut cmd = Command::new("vd");
+            cmd.current_dir(workdir).arg("-");
+            Some(cmd)
+        }
+        ResolvedViewer::Csvlens => {
+            let mut cmd = Command::new("csvlens");
+            cmd
+                .current_dir(workdir)
+                .args(["--columns", CSVLENS_DEFAULT_COLUMNS]);
+            Some(cmd)
+        }
+        ResolvedViewer::Custom(parts) => {
+            let mut cmd = Command::new(&parts[0]);
+            cmd.args(&parts[1..]).current_dir(workdir);
+            Some(cmd)
+        }
+        ResolvedViewer::Table => {
+            // For table view, we just print the input directly
+            println!("{}", String::from_utf8_lossy(input));
+            return Ok(());
+        }
+    };
+
+    if let Some(mut command) = command {
+        use std::io::Write;
+        let mut child = command.stdin(std::process::Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(input)?;
+        }
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            return Err(eyre!(
+                "Viewer command failed with status {}:\n{}\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+/// Executes the size difference script to compare the two artifact files.
+///
+/// Uses `uv run` to execute `scripts/tools/binary_elf_size_diff.py`.
+fn run_script_diff(
+    from_path: &Path,
+    to_path: &Path,
+    workdir: &Path,
+    extra_args: &[String],
+    viewer: &ViewerTool,
+) -> Result<()> {
     let mut diff_cmd = Command::new("uv");
     diff_cmd
         .args(["run", "scripts/tools/binary_elf_size_diff.py"])
@@ -239,6 +340,23 @@ mod tests {
         assert!("".parse::<ViewerTool>().is_err());
         assert!("foobar".parse::<ViewerTool>().is_err());
         assert!("Custom:foo".parse::<ViewerTool>().is_err()); // case-sensitive
+    }
+
+    // ── DiffEngine parsing ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_diff_engine_known() {
+        assert_eq!("script".parse::<DiffEngine>().unwrap(), DiffEngine::Script);
+        assert_eq!("nm".parse::<DiffEngine>().unwrap(), DiffEngine::Nm);
+        assert_eq!("native".parse::<DiffEngine>().unwrap(), DiffEngine::Native);
+        assert_eq!("goblin".parse::<DiffEngine>().unwrap(), DiffEngine::Goblin);
+    }
+
+    #[test]
+    fn test_parse_diff_engine_unknown() {
+        assert!("".parse::<DiffEngine>().is_err());
+        assert!("default".parse::<DiffEngine>().is_err());
+        assert!("Native".parse::<DiffEngine>().is_err());
     }
 
     // ── resolve (deterministic variants only) ─────────────────────────────────

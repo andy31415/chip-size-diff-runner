@@ -34,6 +34,12 @@ pub struct CompareArgs {
     #[arg(long, default_value = "default")]
     pub viewer: String,
 
+    /// Diff engine to use for comparison.
+    ///
+    /// Options: script, nm, native, goblin
+    #[arg(long, default_value = "native")]
+    pub diff_engine: String,
+
     /// Extra arguments to pass to the underlying diff script.
     ///
     /// These arguments are passed after `--` to this subcommand.
@@ -283,6 +289,10 @@ fn resolve_compare_args(
 /// Accepts the session loaded by the caller to avoid a double load.
 pub fn handle_compare(args: &CompareArgs, workdir: &Path, mut session: SessionState) -> Result<()> {
     let viewer: ViewerTool = args.viewer.parse().wrap_err("Invalid --viewer value")?;
+    let diff_engine: diff_engine::DiffEngine = args
+        .diff_engine
+        .parse()
+        .wrap_err("Invalid --diff-engine value")?;
 
     let resolved_args = resolve_compare_args(args, workdir, &session)
         .wrap_err("Failed to resolve compare arguments")?;
@@ -291,6 +301,7 @@ pub fn handle_compare(args: &CompareArgs, workdir: &Path, mut session: SessionSt
         &resolved_args.from_path,
         &resolved_args.to_path,
         workdir,
+        &diff_engine,
         &args.extra_diff_args,
         &viewer,
     )
