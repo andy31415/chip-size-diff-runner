@@ -59,7 +59,7 @@ pub fn generate_diff_csv(from_symbols: Vec<Symbol>, to_symbols: Vec<Symbol>) -> 
     results.sort_by(|a, b| a.diff.cmp(&b.diff));
 
     let mut wtr = WriterBuilder::new().from_writer(vec![]);
-    wtr.write_record(&["Change", "Type", "Diff", "Symbol", "Base Size", "Size"])?;
+    wtr.write_record(["Change", "Type", "Diff", "Symbol", "Base Size", "Size"])?;
 
     let mut total_diff: i64 = 0;
     let mut total_base_size: usize = 0;
