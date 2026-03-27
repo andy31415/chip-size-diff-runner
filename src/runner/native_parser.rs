@@ -1,4 +1,4 @@
-use crate::runner::common::demangle_name;
+use crate::runner::symbol_diff::demangle_name;
 use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
 use elf::ElfBytes;
 use elf::abi;

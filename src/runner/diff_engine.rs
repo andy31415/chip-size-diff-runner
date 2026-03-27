@@ -1,8 +1,9 @@
-use crate::runner::common;
+
 use crate::runner::definitions::ElfParser;
 use crate::runner::native_parser::NativeParser;
 use crate::runner::nm_parser::NmParser;
 use crate::runner::process::CommandChain;
+use crate::runner::symbol_diff;
 use eyre::{Result, eyre};
 use log::{debug, info};
 use std::path::Path;
@@ -151,14 +152,14 @@ pub fn run_diff(
             let parser = NmParser::default();
             let from_symbols = parser.get_symbols(from_path)?;
             let to_symbols = parser.get_symbols(to_path)?;
-            let csv_data = common::generate_diff_csv(from_symbols, to_symbols)?;
+            let csv_data = symbol_diff::generate_diff_csv(from_symbols, to_symbols)?;
             pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
         }
         DiffEngine::Native => {
             let parser = NativeParser;
             let from_symbols = parser.get_symbols(from_path)?;
             let to_symbols = parser.get_symbols(to_path)?;
-            let csv_data = common::generate_diff_csv(from_symbols, to_symbols)?;
+            let csv_data = symbol_diff::generate_diff_csv(from_symbols, to_symbols)?;
             pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
         }
         DiffEngine::Goblin => unimplemented!("Goblin diff engine not yet implemented"),
