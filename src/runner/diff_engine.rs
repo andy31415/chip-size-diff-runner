@@ -1,4 +1,5 @@
 use crate::runner::definitions::ElfParser;
+use crate::runner::goblin_parser::GoblinParser;
 use crate::runner::native_parser::NativeParser;
 use crate::runner::nm_parser::NmParser;
 use crate::runner::process::CommandChain;
@@ -161,7 +162,13 @@ pub fn run_diff(
             let csv_data = symbol_diff::generate_diff_csv(from_symbols, to_symbols)?;
             pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
         }
-        DiffEngine::Goblin => unimplemented!("Goblin diff engine not yet implemented"),
+        DiffEngine::Goblin => {
+            let parser = GoblinParser;
+            let from_symbols = parser.get_symbols(from_path)?;
+            let to_symbols = parser.get_symbols(to_path)?;
+            let csv_data = symbol_diff::generate_diff_csv(from_symbols, to_symbols)?;
+            pipe_to_viewer(csv_data.as_bytes(), workdir, viewer)?;
+        }
     }
     Ok(())
 }
