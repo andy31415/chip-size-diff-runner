@@ -1,5 +1,5 @@
-use crate::runner::symbol_diff::demangle_name;
 use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
+use crate::runner::symbol_diff::demangle_name;
 use elf::ElfBytes;
 use elf::abi;
 use elf::endian::AnyEndian;
