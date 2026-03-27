@@ -1,8 +1,8 @@
-use crate::runner::process::CommandChain;
-use crate::runner::definitions::{ElfParser};
 use crate::runner::common;
+use crate::runner::definitions::ElfParser;
 use crate::runner::native_parser::NativeParser;
 use crate::runner::nm_parser::NmParser;
+use crate::runner::process::CommandChain;
 use eyre::{Result, eyre};
 use log::{debug, info};
 use std::path::Path;
@@ -79,7 +79,9 @@ impl std::str::FromStr for ViewerTool {
                 let rest = s.trim_start_matches("custom:");
                 let parts: Vec<String> = rest.split_whitespace().map(str::to_string).collect();
                 if parts.is_empty() {
-                    Err(eyre!(r#"custom: viewer requires a program name, e.g. custom:myviewer or custom:"grep chip""#))
+                    Err(eyre!(
+                        r#"custom: viewer requires a program name, e.g. custom:myviewer or custom:"grep chip""#
+                    ))
                 } else {
                     Ok(Self::Custom(parts))
                 }
@@ -174,8 +176,7 @@ fn pipe_to_viewer(input: &[u8], workdir: &Path, viewer: &ViewerTool) -> Result<(
         }
         ResolvedViewer::Csvlens => {
             let mut cmd = Command::new("csvlens");
-            cmd
-                .current_dir(workdir)
+            cmd.current_dir(workdir)
                 .args(["--columns", CSVLENS_DEFAULT_COLUMNS]);
             Some(cmd)
         }

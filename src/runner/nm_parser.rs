@@ -1,5 +1,5 @@
-use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
 use crate::runner::common::demangle_name;
+use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
 use eyre::{Result, WrapErr, eyre};
 use std::path::Path;
 use std::process::Command;
@@ -57,11 +57,11 @@ stderr: {}",
             let size: usize = parts[1]
                 .parse()
                 .wrap_err_with(|| format!("Failed to parse size from nm line: {}", line))?;
-            
+
             if size == 0 {
                 continue; // Skip zero-sized symbols
             }
-            
+
             let symbol_type = parts[2].chars().next().unwrap_or('?');
             let name = parts[3];
 

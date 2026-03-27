@@ -1,8 +1,8 @@
-use crate::runner::definitions::{Symbol, DiffResult, ChangeType};
-use eyre::Result;
-use std::collections::HashMap;
+use crate::runner::definitions::{ChangeType, DiffResult, Symbol};
 use cpp_demangle;
 use csv::WriterBuilder;
+use eyre::Result;
+use std::collections::HashMap;
 
 pub fn demangle_name(name: &str) -> String {
     match cpp_demangle::Symbol::new(name.as_bytes()) {
@@ -12,8 +12,14 @@ pub fn demangle_name(name: &str) -> String {
 }
 
 pub fn generate_diff_csv(from_symbols: Vec<Symbol>, to_symbols: Vec<Symbol>) -> Result<String> {
-    let from_map: HashMap<String, Symbol> = from_symbols.into_iter().map(|s| (s.name.clone(), s)).collect();
-    let to_map: HashMap<String, Symbol> = to_symbols.into_iter().map(|s| (s.name.clone(), s)).collect();
+    let from_map: HashMap<String, Symbol> = from_symbols
+        .into_iter()
+        .map(|s| (s.name.clone(), s))
+        .collect();
+    let to_map: HashMap<String, Symbol> = to_symbols
+        .into_iter()
+        .map(|s| (s.name.clone(), s))
+        .collect();
 
     let mut results: Vec<DiffResult> = Vec::new();
     let mut all_keys: Vec<&String> = from_map.keys().collect();
@@ -100,7 +106,10 @@ mod tests {
 
     #[test]
     fn test_demangle_name() {
-        assert_eq!(demangle_name("_ZN6System5Layer4InitEv"), "System::Layer::Init()");
+        assert_eq!(
+            demangle_name("_ZN6System5Layer4InitEv"),
+            "System::Layer::Init()"
+        );
         assert_eq!(demangle_name("not_mangled"), "not_mangled");
     }
     // TODO: Add tests for generate_diff_csv

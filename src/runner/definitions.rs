@@ -1,6 +1,6 @@
 use eyre::Result;
-use std::path::Path;
 use std::fmt;
+use std::path::Path;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum SymbolKind {

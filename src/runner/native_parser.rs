@@ -1,16 +1,18 @@
-use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
 use crate::runner::common::demangle_name;
-use eyre::{Result, WrapErr, eyre};
-use std::path::Path;
+use crate::runner::definitions::{ElfParser, Symbol, SymbolKind};
 use elf::ElfBytes;
 use elf::abi;
 use elf::endian::AnyEndian;
+use eyre::{Result, WrapErr, eyre};
+use std::path::Path;
 
 pub struct NativeParser;
 
 impl ElfParser for NativeParser {
     fn get_symbols(&self, path: &Path) -> Result<Vec<Symbol>> {
-        let path_str = path.to_str().ok_or_else(|| eyre!("Invalid path: {:?}", path))?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| eyre!("Invalid path: {:?}", path))?;
         let file_data = std::fs::read(path)
             .wrap_err_with(|| format!("Failed to read ELF file: {}", path_str))?;
         let elf_file = ElfBytes::<AnyEndian>::minimal_parse(&file_data)
@@ -18,7 +20,8 @@ impl ElfParser for NativeParser {
 
         let mut symbols = Vec::new();
 
-        let (symtab, strtab) = elf_file.symbol_table()?        
+        let (symtab, strtab) = elf_file
+            .symbol_table()?
             .ok_or_else(|| eyre!("No symbol table found in {}", path_str))?;
 
         for sym in symtab {
