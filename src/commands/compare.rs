@@ -176,6 +176,8 @@ fn resolve_compare_args(
         if to_file_str.is_none()
             && let (Some(from), Some(to)) =
                 (session.from_file.as_deref(), session.to_file.as_deref())
+            && workdir.join(from).exists()
+            && workdir.join(to).exists()
         {
             let label = match (parse_artifact_path(from), parse_artifact_path(to)) {
                 (Some((from_tag, from_app)), Some((to_tag, to_app))) => {
